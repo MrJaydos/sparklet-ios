@@ -6,7 +6,8 @@ enum AppConfig {
     // against a local backend.
     static let apiBaseURL = URL(string: "https://sparkletapp.com")!
 
-    // Must match project.yml's CFBundleURLTypes scheme and the backend's
-    // native-login callback (see Auth/LoginView.swift).
-    static let authCallbackScheme = "sparklet"
+    // Must exactly match an entry in the backend's ALLOWED_MOBILE_SCHEMES
+    // (src/lib/mobile-auth.ts) and project.yml's CFBundleURLTypes — it's an
+    // allowlist, not a passthrough, so any other value 400s at /login.
+    static let authCallbackScheme = "sparklet-ios"
 }

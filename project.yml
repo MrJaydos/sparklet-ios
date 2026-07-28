@@ -38,12 +38,13 @@ targets:
         CFBundleDisplayName: Sparklet
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # Custom URL scheme the backend redirects to at the end of the
-        # native login flow (ASWebAuthenticationSession callback) — see
-        # Auth/LoginView.swift and AGENTS.md's auth section.
+        # Must exactly match an entry in the backend's ALLOWED_MOBILE_SCHEMES
+        # (sparklet repo: src/lib/mobile-auth.ts) and AppConfig.authCallbackScheme
+        # — the one-time login code's deep-link redirect lands here. See
+        # Auth/LoginController.swift and AGENTS.md's auth section.
         CFBundleURLTypes:
           - CFBundleURLSchemes:
-              - sparklet
+              - sparklet-ios
             CFBundleURLName: com.sparklet.ios.auth
         UILaunchScreen: {}
         NSAppTransportSecurity:

@@ -43,6 +43,16 @@ struct APIClient {
         return try await send(request, token: token)
     }
 
+    // No caller needs the `{ ok: true }` body back — a dedicated
+    // non-generic method avoids the awkward "decode into a type I'm
+    // discarding" shape a generic `delete<Response>` would force at the
+    // call site.
+    func deleteDiscardingResponse(_ path: String, token: String?) async throws {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appendingPathComponent(path))
+        request.httpMethod = "DELETE"
+        let _: EmptyDecodable = try await send(request, token: token)
+    }
+
     private func send<Response: Decodable>(_ request: URLRequest, token: String?) async throws -> Response {
         var request = request
         if let token {
@@ -72,3 +82,8 @@ struct APIClient {
         }
     }
 }
+
+// Decodes successfully against any JSON object — used by
+// deleteDiscardingResponse where the caller only cares that the request
+// succeeded, not the response body's shape.
+private struct EmptyDecodable: Decodable {}

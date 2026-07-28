@@ -20,6 +20,12 @@ final class AuthSession: ObservableObject {
         self.token = token
     }
 
+    // Local-only: clears the token here without revoking it server-side.
+    // Used today only as the automatic response to a 401 (see FeedViewModel/
+    // StatsHeaderViewModel), where the token is already invalid — nothing to
+    // revoke. An explicit user-initiated "Sign out" (no UI for one yet)
+    // should call LoginController.signOut(token:) first, which actually
+    // revokes the Session row, then this.
     func signOut() {
         KeychainTokenStore.clear()
         token = nil
