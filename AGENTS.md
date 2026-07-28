@@ -7,10 +7,47 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
-No code yet. Architecture (auth flow, native vs. hybrid, push strategy) is
-still being decided — see "Open decisions" below before scaffolding an Xcode
-project. Resolve those first, then replace this section and the Commands
-section with the real thing.
+Scaffolded (2026-07-28): native SwiftUI, XcodeGen-generated project
+(`.xcodeproj` is not committed — see Commands), a paged single-card feed
+screen backed by `GET /api/feed`, the two-POST read-tracking flow against
+`/api/interactions` (tracking only the one card actually on screen — see the
+comment on `FeedView`'s `visibleCardId`, this was a real integrity bug in an
+earlier pass and is worth not regressing), and a header stats row backed by
+`GET /api/profile`. Not yet built: quiz/guess/misconception/review
+answering, and — the one open blocker — the backend token-auth endpoint (see
+"Auth" below). `LoginController` drives the real web `/login` flow today but
+has nothing to receive a token from yet, so sign-in doesn't actually
+complete end to end.
+
+## Decisions made
+
+- **Auth: token-based (backend change required, not yet built).** Session
+  cookies can't cross into a native app — `ASWebAuthenticationSession`
+  never exposes the cookie jar, and `WKWebView` (which can read cookies)
+  triggers Google's `disallowed_useragent` block on embedded OAuth. Instead:
+  `LoginController` opens `/login?client=ios&callback=sparklet` in
+  `ASWebAuthenticationSession` (system browser context, so Google's OAuth
+  isn't blocked); once the existing Google/Apple/magic-link flow completes,
+  the backend must redirect to `sparklet://auth?token=<sessionToken>`
+  instead of `/feed`. The token is just the existing `Session.sessionToken`
+  row (`prisma/schema.prisma` in the backend repo) surfaced to a redirect
+  instead of a cookie — no new auth strategy needed there, just a new
+  callback path and an `auth()` fallback that accepts
+  `Authorization: Bearer <token>` by looking up that same table. ~23 route
+  handlers in the backend call `auth()` directly today (grepped
+  `from "@/auth"` under `src/app/api`), so that fallback needs to sit
+  behind the existing `auth()` export, not require touching every call site.
+  **This backend change hasn't been made yet** — confirm with the user
+  before implementing it in the `sparklet` repo, since that's a shipped
+  production app deployed off pushes to `main`.
+- **Push: deferred for v1.** Existing push is VAPID web-push — literally
+  cannot run in a native app (no service worker). v1 ships with zero
+  notifications. When `PushSubscription` is next touched for other reasons,
+  add a `platform` discriminator column then rather than migrating twice.
+- **Client architecture: native SwiftUI**, not a hybrid wrapper — chosen for
+  swipe-feed feel/performance, at the cost of rebuilding
+  feed/quiz/guess/misconception UI rather than reusing the web app's React
+  code.
 
 ## Backend reference
 
@@ -50,34 +87,39 @@ UI that matches them rather than fights them:
   I hit my count today" vs "did I hit my XP today") — keep them visually and
   logically separate, same as the web client.
 
-## Open decisions (resolve before scaffolding further)
+## Still open
 
-1. **Auth.** The backend session is cookie-based (Auth.js, Prisma-adapter DB
-   sessions) — there is no token/API-key auth path for native clients today.
-   Either:
-   - (a) drive login through `ASWebAuthenticationSession`/`WKWebView` against
-     the existing `/login` flow (Google, Apple, magic-link all already work
-     there) and carry the resulting session cookie in `URLSession`'s shared
-     cookie storage, or
-   - (b) add a token-based auth path to the backend for mobile clients.
-
-   Decide and replace this bullet with the chosen approach once settled.
-
-2. **Push.** Backend push is VAPID web-push (`PushSubscription` model,
-   `src/lib/push.ts`), not APNs. Native push notifications need a separate
-   APNs integration (certificates/keys, a new subscription model or a
-   platform field on the existing one, and native-specific send logic) —
-   decide whether that's in scope for v1 or a fast-follow.
-
-3. **Client architecture.** Native SwiftUI vs. a hybrid (Capacitor/React
-   Native) wrapping the existing web app. Current lean is native SwiftUI for
-   feed feel/performance (swipe-driven vertical feed, haptics, animation
-   quality) — confirm before scaffolding, since it commits to rebuilding the
-   feed/quiz/guess/misconception UI natively rather than reusing web code.
+1. **The backend token-auth endpoint** described under "Decisions made"
+   above doesn't exist yet — it's a change to the `sparklet` repo (a shipped
+   production app), so implement it there as a separate, confirmed step
+   rather than assuming it's covered by this repo's scaffolding.
+2. **Quiz/guess/misconception/review answering UI** — the feed payload
+   already returns `quizzes`/`reviewQuizzes`/`guesses`/`misconceptions`/
+   `explainPrompts` (see `Models/FeedCard.swift`), but nothing renders or
+   answers them yet.
+3. **`CardView` clips unusually long cards** instead of scrolling within
+   their page — a nested `ScrollView` was tried and reverted (see the
+   comment in `CardView.swift`: it fights `.scrollTargetBehavior(.paging)`
+   for the drag gesture, unverifiable without a device). Needs an on-device
+   look, not a blind fix.
+4. **`.refreshable` may not fire on the paged feed** — pull-to-refresh needs
+   top overscroll, which a paging `ScrollView` may consume instead. Verify
+   on device; if it doesn't trigger, that's a missing affordance to design
+   around, not a bug to patch blindly.
 
 ## Commands
 
-No build yet — Xcode project not scaffolded. Once it exists, replace this
-section with the real scheme name and `xcodebuild` invocation (for local
-builds and any CI), plus how to point a local build at the backend (local
-Next.js dev server vs. sparkletapp.com).
+No `.xcodeproj` is committed — it's generated from `project.yml` via
+[XcodeGen](https://github.com/yonaskolb/XcodeGen) so the project file stays
+mergeable. Requires a Mac with Xcode 15+:
+
+```bash
+brew install xcodegen
+xcodegen generate
+open Sparklet.xcodeproj
+```
+
+No CI yet. To point a local build at the `sparklet` dev server instead of
+production, edit `Sparklet/Config/AppConfig.swift`'s `apiBaseURL` — use your
+machine's LAN IP, not `localhost` (that resolves to the simulator/device
+itself), and the port from that repo's `npm run dev` (`PORT=3001`).

@@ -1,0 +1,63 @@
+name: Sparklet
+options:
+  bundleIdPrefix: com.sparklet
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1" # iPhone only for v1; add "1,2" for iPad later
+
+targets:
+  Sparklet:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sparklet
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sparklet.ios
+        # No team set — fill in DEVELOPMENT_TEAM (or set it in Xcode's
+        # Signing & Capabilities tab after generating the project) once you
+        # have an Apple Developer account attached.
+        ENABLE_PREVIEWS: "YES"
+    # All Info.plist keys are set here as raw plist entries rather than via
+    # INFOPLIST_KEY_* build settings — mixing the two mechanisms with an
+    # explicit `info.path` file (below) is a real ambiguity in
+    # xcodegen/xcodebuild about which one wins.
+    info:
+      path: Sparklet/Info.plist
+      properties:
+        CFBundleDisplayName: Sparklet
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Custom URL scheme the backend redirects to at the end of the
+        # native login flow (ASWebAuthenticationSession callback) — see
+        # Auth/LoginView.swift and AGENTS.md's auth section.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - sparklet
+            CFBundleURLName: com.sparklet.ios.auth
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+    scheme:
+      testTargets:
+        - SparkletTests
+
+  SparkletTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SparkletTests
+    dependencies:
+      - target: Sparklet
