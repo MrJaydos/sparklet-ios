@@ -7,6 +7,32 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Onboarding screen built and verified live 2026-07-29** — the third Tier 1
+screen. Two backend additions (`sparklet` repo, committed and deployed,
+`f101676`): `GET /api/categories` (the picker grid's data — previously only
+ever queried server-side, in `src/app/onboarding/page.tsx` and the
+signed-out feed page) and a `needsOnboarding` flag added to
+`GET /api/profile`, computed server-side with the exact same condition as
+the web's feed-page redirect (`!onboardedAt && interactionCount === 0`) so
+the client doesn't need to know the rule, just whether to show the picker.
+`OnboardingView` mirrors the web's two-step `OnboardingGrid` (optional name
+→ ≥3-topic interest grid, "Skip — show me everything" always available) as
+a `fullScreenCover` from `FeedView` — this client has no server-driven page
+redirect to hook into, so the cover stands in for the web's separate
+`/onboarding` route, triggered once `StatsHeaderViewModel.profile.
+needsOnboarding` comes back true after the initial load. Verified live: the
+name step renders correctly, and the interest grid pulled the real 13
+production categories (icons, names, colors) from `GET /api/categories`.
+Not verified live: actually submitting a pick (`POST /api/interests`) or a
+name (`PATCH /api/profile`, new to the client — `ProfileAPI.updateName`,
+backed by a new generic `APIClient.patch`) — the signed-in test account is
+already onboarded, so `needsOnboarding` is false and the real button taps
+couldn't be exercised without either a fresh account or working UI
+automation (this session has no Accessibility permission for driving
+simulator taps via System Events, so both this and Friends' mutating
+actions were verified by temporarily forcing the view open rather than by
+tapping through).
+
 **Friends screen built and verified live 2026-07-29** — the second Tier 1
 screen (see "Screens not yet built" below). The web app had no API route for
 this at all: `friends`/`incoming`/`outgoing`/`friendCode` were only ever
@@ -259,19 +285,18 @@ UI that matches them rather than fights them:
 
 ## Screens not yet built (scoped 2026-07-29)
 
-The app is currently four screens — `LoginView`, `FeedView`,
-`NotificationsView`, and `FriendsView`. Everything else the web app has is
-missing. Scoped by tier, based on a survey of the web app's pages and API
-routes (`sparklet` repo):
+The app is currently five screens — `LoginView`, `FeedView`,
+`NotificationsView`, `FriendsView`, and `OnboardingView`. Everything else
+the web app has is missing. Scoped by tier, based on a survey of the web
+app's pages and API routes (`sparklet` repo):
 
 **Tier 1 — real gaps for a shipped app, each independently buildable:**
 
 - ~~**Notifications**~~ **Built and verified live 2026-07-29** — see Status
   above.
 - ~~**Friends**~~ **Built and verified live 2026-07-29** — see Status above.
-- **Onboarding**: `POST /api/interests` is client-ready. Needs one small
-  new endpoint (or reuse of the feed's category list) for the interest
-  picker's category grid — everything else is a simple multi-select.
+- ~~**Onboarding**~~ **Built and verified live 2026-07-29** — see Status
+  above.
 - **Leaderboard**: no API route exists yet — the web page does the
   today/7-day/all-time/friends ranking via direct Prisma queries
   (`src/app/leaderboard/page.tsx`). Needs a new route, e.g.

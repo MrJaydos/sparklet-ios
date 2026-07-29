@@ -49,4 +49,16 @@ extension Color {
             opacity: opacity
         )
     }
+
+    // Parses a Category.colorHex string ("#38bdf8", from prisma/seed.ts) —
+    // falls back to the brand accent for anything malformed rather than a
+    // jarring default like black/white.
+    init(hexString: String, opacity: Double = 1) {
+        let trimmed = hexString.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard let value = UInt32(trimmed, radix: 16) else {
+            self = Theme.accent
+            return
+        }
+        self.init(hex: value, opacity: opacity)
+    }
 }

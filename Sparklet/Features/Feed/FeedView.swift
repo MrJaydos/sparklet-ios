@@ -15,16 +15,19 @@ struct FeedView: View {
     @StateObject private var statsViewModel: StatsHeaderViewModel
     @StateObject private var notificationsViewModel: NotificationsViewModel
     @StateObject private var friendsViewModel: FriendsViewModel
+    @StateObject private var onboardingViewModel: OnboardingViewModel
     @State private var visibleCardId: String?
     @State private var isRefreshing = false
     @State private var showingNotifications = false
     @State private var showingFriends = false
+    @State private var showingOnboarding = false
 
     init(authSession: AuthSession) {
         _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession))
         _statsViewModel = StateObject(wrappedValue: StatsHeaderViewModel(authSession: authSession))
         _notificationsViewModel = StateObject(wrappedValue: NotificationsViewModel(authSession: authSession))
         _friendsViewModel = StateObject(wrappedValue: FriendsViewModel(authSession: authSession))
+        _onboardingViewModel = StateObject(wrappedValue: OnboardingViewModel(authSession: authSession))
     }
 
     var body: some View {
@@ -73,12 +76,23 @@ struct FeedView: View {
             }
             await statsViewModel.load()
             await notificationsViewModel.refreshUnreadCount()
+            // Same one-time "first session, never onboarded" condition as
+            // the web's feed-page redirect, computed server-side (see
+            // ProfileResponse.needsOnboarding) — this client has no
+            // server-driven page redirect to hook into, so a fullScreenCover
+            // stands in for the web's separate /onboarding route.
+            if statsViewModel.profile?.needsOnboarding == true {
+                showingOnboarding = true
+            }
         }
         .sheet(isPresented: $showingNotifications) {
             NotificationsView(viewModel: notificationsViewModel)
         }
         .sheet(isPresented: $showingFriends) {
             FriendsView(viewModel: friendsViewModel)
+        }
+        .fullScreenCover(isPresented: $showingOnboarding) {
+            OnboardingView(viewModel: onboardingViewModel, onComplete: { showingOnboarding = false })
         }
         .task(id: visibleCardId) {
             // Only a `.card` item feeds the dwell-tracked read flow — a

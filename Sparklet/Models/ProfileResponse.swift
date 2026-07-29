@@ -14,4 +14,8 @@ struct ProfileResponse: Codable {
     let currentStreak: Int
     let longestStreak: Int
     let freezesAvailable: Int
+    // Same one-time "first session, never onboarded" condition as the web's
+    // feed-page redirect (sparklet/src/app/feed/page.tsx), computed
+    // server-side — see FeedView's fullScreenCover.
+    let needsOnboarding: Bool
 }

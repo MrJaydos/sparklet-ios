@@ -16,4 +16,15 @@ struct ProfileAPI {
             token: token
         )
     }
+
+    private struct UpdateNameRequest: Encodable { let name: String }
+    private struct UpdateNameResponse: Decodable { let ok: Bool; let name: String? }
+
+    func updateName(_ name: String, token: String?) async throws {
+        let _: UpdateNameResponse = try await client.patch(
+            "api/profile",
+            body: UpdateNameRequest(name: name),
+            token: token
+        )
+    }
 }

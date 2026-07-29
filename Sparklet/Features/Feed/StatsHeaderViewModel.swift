@@ -47,7 +47,8 @@ final class StatsHeaderViewModel: ObservableObject {
             cardsToday: current.cardsToday + (countsAsCard && xp.awarded > 0 ? 1 : 0),
             currentStreak: xp.streak?.currentStreak ?? current.currentStreak,
             longestStreak: xp.streak?.longestStreak ?? current.longestStreak,
-            freezesAvailable: xp.streak?.freezesAvailable ?? current.freezesAvailable
+            freezesAvailable: xp.streak?.freezesAvailable ?? current.freezesAvailable,
+            needsOnboarding: current.needsOnboarding
         )
     }
 }

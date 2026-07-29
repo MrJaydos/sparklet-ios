@@ -43,6 +43,18 @@ struct APIClient {
         return try await send(request, token: token)
     }
 
+    func patch<Body: Encodable, Response: Decodable>(
+        _ path: String,
+        body: Body,
+        token: String?
+    ) async throws -> Response {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appendingPathComponent(path))
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        return try await send(request, token: token)
+    }
+
     // No caller needs the `{ ok: true }` body back — a dedicated
     // non-generic method avoids the awkward "decode into a type I'm
     // discarding" shape a generic `delete<Response>` would force at the
