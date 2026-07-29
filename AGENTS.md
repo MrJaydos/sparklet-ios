@@ -44,15 +44,17 @@ rail alongside Stripe, not a replacement — `isPremium()` now ORs both.
   account, Team ID, or network required — wired into a proper top-level
   `schemes:` block in `project.yml` (not the target's inline `scheme:`
   shorthand) so both the Run and Test actions get it.
-- **Product loading verified live 2026-07-29 (by the user, in real Xcode)**:
-  both plans (Premium Monthly/Annual) render correctly in `UpgradeView` with
-  real StoreKit-supplied pricing, confirming `Sparklet.storekit` itself is
-  valid — this was the one piece this CLI-only session couldn't check
-  (see below for why). **Still not verified**: actually completing a test
-  purchase and confirming the resulting `POST /api/billing/apple/verify`
-  round trip flips `premium` to true — that needs a tap through the
-  StoreKit Testing purchase sheet in the same real-Xcode session, which
-  hasn't happened yet.
+- **Full purchase flow verified live 2026-07-29 (by the user, in real
+  Xcode)**: both plans (Premium Monthly/Annual) rendered with real
+  StoreKit-supplied pricing, a test purchase completed through the local
+  StoreKit Testing sheet, and `UpgradeView` correctly flipped to "You're
+  Premium" afterward — confirming the entire chain end to end: `Sparklet.
+  storekit` is valid, `PurchaseManager.purchase()`/`handle()` correctly
+  extracts and finishes the transaction, `POST /api/billing/apple/verify`
+  correctly verifies the signed transaction against Apple's root CA and
+  reconciles it onto the user's row, and `isPremium()` correctly derives
+  true from the result. This was the one piece this CLI-only session
+  couldn't check itself (see below for why) — it's now fully closed.
 - Getting to the above took two failed CLI-only paths, not a gap in the
   work: (1) Apple's own `SKTestSession` (the sanctioned way to drive a
   purchase without UI, via `disableDialogs`) failed at the OS level in
@@ -488,18 +490,12 @@ UI that matches them rather than fights them:
    code-reviewed ports of already-proven web logic, not click-tested. A
    future pass with Accessibility permission (or `idb`) should close this
    gap across the board rather than one screen at a time.
-9. **StoreKit: product loading confirmed, an actual test purchase still
-   isn't.** See the Status entry above for why this session could only get
-   partway there itself (`xcodebuild`/`simctl` can't push a StoreKit
-   configuration to the simulator at all — a documented iOS 26.5
-   regression). In the same real-Xcode session used to confirm the plans
-   render: tap Subscribe on one, complete the local StoreKit Testing
-   purchase sheet (no real Apple ID needed), and confirm `UpgradeView`
-   flips to "You're Premium" — that exercises the
-   `POST /api/billing/apple/verify` round trip end to end for the first
-   time. Separately, once a real Apple Developer Team ID and App Store
-   Connect app record exist: create the two subscription products with
-   IDs matching `Sparklet.storekit` exactly
+9. ~~StoreKit purchase flow unverified~~ **Resolved 2026-07-29** — the user
+   completed a real test purchase in Xcode and confirmed `UpgradeView`
+   correctly showed "You're Premium" afterward. See Status above. Only
+   remaining follow-up, and only once a real Apple Developer Team ID and
+   App Store Connect app record exist: create the two subscription
+   products with IDs matching `Sparklet.storekit` exactly
    (`com.sparklet.ios.premium.monthly`/`.annual`), register
    `POST /api/billing/apple/notifications`'s URL there, and set
    `DEVELOPMENT_TEAM` in `project.yml`.
