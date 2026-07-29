@@ -5,7 +5,7 @@ struct StreakInfoView: View {
     let streak: Int
     let longestStreak: Int
     let freezesAvailable: Int
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -14,7 +14,7 @@ struct StreakInfoView: View {
                     .font(.title3.bold())
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("✕") { onClose() }
                     .foregroundStyle(Theme.textTertiary)
             }
             Text(streak > 0
@@ -35,11 +35,8 @@ struct StreakInfoView: View {
                 .padding(12)
                 .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
 
-            Spacer(minLength: 0)
         }
         .padding(20)
-        .presentationDetents([.medium])
-        .presentationBackground(Theme.background)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
@@ -55,7 +52,7 @@ struct StreakInfoView: View {
 struct XpInfoView: View {
     let today: Int
     let goal: Int
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
 
     private var done: Bool { today >= goal }
     private var progress: Double { min(1, goal > 0 ? Double(today) / Double(goal) : 0) }
@@ -67,7 +64,7 @@ struct XpInfoView: View {
                     .font(.title3.bold())
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("✕") { onClose() }
                     .foregroundStyle(Theme.textTertiary)
             }
             Text(done
@@ -91,12 +88,8 @@ struct XpInfoView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .padding(12)
                 .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
-
-            Spacer(minLength: 0)
         }
         .padding(20)
-        .presentationDetents([.medium])
-        .presentationBackground(Theme.background)
     }
 
     private func xpRow(_ label: String, _ value: String) -> some View {

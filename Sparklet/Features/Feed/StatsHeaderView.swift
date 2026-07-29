@@ -14,22 +14,17 @@ struct StatsHeaderView: View {
     let onOpenFriends: () -> Void
     let onOpenLeaderboard: () -> Void
     let onOpenProfile: () -> Void
-
-    @State private var showingStreakInfo = false
-    @State private var showingXpInfo = false
+    let onOpenStreakInfo: () -> Void
+    let onOpenXpInfo: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             if let profile {
-                Button {
-                    showingStreakInfo = true
-                } label: {
+                Button(action: onOpenStreakInfo) {
                     Label("\(profile.currentStreak)", systemImage: "flame.fill")
                 }
                 .foregroundStyle(.orange)
-                Button {
-                    showingXpInfo = true
-                } label: {
+                Button(action: onOpenXpInfo) {
                     Label("\(profile.xpToday)/\(profile.xpGoal) XP", systemImage: "star.fill")
                 }
                 .foregroundStyle(.yellow)
@@ -48,20 +43,6 @@ struct StatsHeaderView: View {
         .font(.subheadline.bold())
         .foregroundStyle(Theme.textPrimary)
         .padding(.horizontal)
-        .sheet(isPresented: $showingStreakInfo) {
-            if let profile {
-                StreakInfoView(
-                    streak: profile.currentStreak,
-                    longestStreak: profile.longestStreak,
-                    freezesAvailable: profile.freezesAvailable
-                )
-            }
-        }
-        .sheet(isPresented: $showingXpInfo) {
-            if let profile {
-                XpInfoView(today: profile.xpToday, goal: profile.xpGoal)
-            }
-        }
     }
 
     private var refreshButton: some View {

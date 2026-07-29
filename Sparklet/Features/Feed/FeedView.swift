@@ -26,6 +26,8 @@ struct FeedView: View {
     @State private var showingOnboarding = false
     @State private var showingLeaderboard = false
     @State private var showingProfile = false
+    @State private var showingStreakInfo = false
+    @State private var showingXpInfo = false
 
     init(authSession: AuthSession) {
         self.authSession = authSession
@@ -48,7 +50,9 @@ struct FeedView: View {
                 onOpenNotifications: { showingNotifications = true },
                 onOpenFriends: { showingFriends = true },
                 onOpenLeaderboard: { showingLeaderboard = true },
-                onOpenProfile: { showingProfile = true }
+                onOpenProfile: { showingProfile = true },
+                onOpenStreakInfo: { showingStreakInfo = true },
+                onOpenXpInfo: { showingXpInfo = true }
             )
             .padding(.vertical, 8)
 
@@ -109,6 +113,25 @@ struct FeedView: View {
         }
         .fullScreenCover(isPresented: $showingOnboarding) {
             OnboardingView(viewModel: onboardingViewModel, onComplete: { showingOnboarding = false })
+        }
+        .topDropdown(isPresented: $showingStreakInfo) {
+            if let profile = statsViewModel.profile {
+                StreakInfoView(
+                    streak: profile.currentStreak,
+                    longestStreak: profile.longestStreak,
+                    freezesAvailable: profile.freezesAvailable,
+                    onClose: { showingStreakInfo = false }
+                )
+            }
+        }
+        .topDropdown(isPresented: $showingXpInfo) {
+            if let profile = statsViewModel.profile {
+                XpInfoView(
+                    today: profile.xpToday,
+                    goal: profile.xpGoal,
+                    onClose: { showingXpInfo = false }
+                )
+            }
         }
         .task(id: visibleCardId) {
             // Only a `.card` item feeds the dwell-tracked read flow — a
