@@ -5,7 +5,7 @@ enum CardType: String, Codable {
     case video = "VIDEO"
 }
 
-enum DepthLevel: String, Codable {
+enum DepthLevel: String, Codable, CaseIterable {
     case simple = "SIMPLE"
     case standard = "STANDARD"
     case deep = "DEEP"

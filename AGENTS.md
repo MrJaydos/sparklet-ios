@@ -7,6 +7,48 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Feed/header parity gaps built and verified live 2026-07-29** — see the
+full scoping below ("Feed/header parity gaps within already-built
+screens"), now all built rather than just scoped:
+
+- **Header dropdowns**: `StreakInfoView`/`XpInfoView`
+  (`Features/Feed/HeaderInfoSheets.swift`) — the flame/XP `Label`s in
+  `StatsHeaderView` are now `Button`s opening sheets with the exact same
+  copy as `StreakBadge.tsx`/`XpRing.tsx`. No new backend call, just
+  `ProfileResponse` fields already fetched. Verified live: both sheets
+  render correctly against the real signed-in account (7-day longest
+  streak, 0 freezes left; "goal smashed" XP state at 96/50).
+- **Card action rail**: `CardView` gained vote (▲▼), a depth switcher
+  (native `Menu`, not a pixel port of the web's custom flyout —
+  simpler and more idiomatic, same premium-gating logic), a related-cards
+  `Menu` (informational only — no card-detail screen exists in iOS to
+  navigate to, see "Still open" below), comments, save, native `ShareLink`,
+  and report. All per-card state (score/myVote/saved/commentCount/depth
+  variant) is local to `CardView`, exactly mirroring `LearnCard.tsx`'s own
+  local `useState` — none of it writes back into `FeedViewModel`'s cards
+  array, matching the web. New: `CardActionsAPI.swift`,
+  `CardActionModels.swift`, `CommentsSheetView.swift` (thread + composer),
+  `ReportSheetView.swift` (shared by cards and comments). Verified live:
+  the full rail rendered correctly on the first build against a real
+  production card (vote pill, depth/related/comments/save/share/report
+  icons all present, text correctly clear of the rail); Comments and
+  Report sheets independently verified via the same forced-`@State`
+  technique — Comments did a real `GET /api/cards/[id]/comments` round
+  trip (empty state rendered correctly), Report rendered all 4 reason
+  options correctly.
+- **Deliberate deviation from the web**: the remembered-depth-preference
+  auto-apply-to-future-cards behavior (web: `localStorage` +
+  `IntersectionObserver`, ported... but not here) was intentionally left
+  out — a nice-to-have layered on top of the core manual-switch feature,
+  not core to it. Manual per-card depth switching, premium gating, and
+  per-card variant caching are all built; only the "remembers your choice
+  across cards" polish is missing.
+- **Not verified live**: actual button taps (vote/save/depth-switch/
+  report-submit/comment-post) — same UI-automation gap as every other
+  screen built this session (no Accessibility permission for
+  `System Events`). These are direct ports of already-working web
+  request/response shapes, not new logic.
+
 **Native StoreKit 2 (Apple IAP) premium purchases built 2026-07-29** — the
 user decided to accept Apple's cut rather than ship iOS without a purchase
 path (resolves "Needs a decision before any code" below). A second billing
@@ -499,6 +541,19 @@ UI that matches them rather than fights them:
    (`com.sparklet.ios.premium.monthly`/`.annual`), register
    `POST /api/billing/apple/notifications`'s URL there, and set
    `DEVELOPMENT_TEAM` in `project.yml`.
+10. **Related-cards menu is informational only, not navigable.** `CardView`'s
+    🧭 related-cards `Menu` (see Status above) lists `FeedCard.related`'s
+    titles/icons but can't link anywhere — the web links to `/card/[id]`,
+    and there's no card-detail screen in iOS at all (comments/report/share
+    all reference `card.id` internally without ever rendering a
+    standalone card view). Worth building once/if a card-detail screen
+    exists for another reason; not scoped as its own project here since
+    the only current consumer would be this one menu.
+11. **Depth-preference memory not ported.** The web remembers a manual
+    depth switch (`localStorage`) and auto-applies it to future cards as
+    they scroll into view (`IntersectionObserver`). iOS only does the
+    manual per-card switch — see Status above for why this was left out
+    deliberately rather than missed.
 
 ## Screens not yet built (scoped 2026-07-29)
 
@@ -532,7 +587,7 @@ StoreKit 2 implementation, was chosen over shipping without a purchase
 path. See Status above for what's built vs. still needing manual App
 Store Connect setup + real-Xcode verification.
 
-## Feed/header parity gaps within already-built screens (scoped 2026-07-29)
+## Feed/header parity gaps within already-built screens (scoped and built 2026-07-29, see Status above)
 
 Flagged by the user: `FeedView`/`CardView`/`StatsHeaderView` exist, but
 don't match the web's `Feed.tsx`/`LearnCard.tsx`/`AppHeader.tsx` feature for

@@ -95,7 +95,7 @@ final class PurchaseManager: ObservableObject {
                 token: authSession.token
             )
             premium = response.premium
-            expiresAt = response.expiresAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+            expiresAt = response.expiresAt.flatMap { ISO8601DateFormatter.withFractionalSeconds.date(from: $0) }
         } catch APIError.unauthorized {
             authSession.signOut()
         } catch {
