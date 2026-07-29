@@ -14,10 +14,12 @@ struct CardView: View {
         // scrollable within its page.
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(card.category.icon)
-                Text(card.category.name)
+                Text("\(card.category.icon) \(card.category.name)")
                     .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Theme.panelAlt, in: Capsule())
                 Spacer()
             }
 
@@ -25,22 +27,24 @@ struct CardView: View {
                 AsyncImage(url: url) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: {
-                    Color.gray.opacity(0.2)
+                    Theme.panelAlt
                 }
                 .frame(height: 180)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
             }
 
             Text(card.title)
-                .font(.headline)
+                .font(.title3.bold())
+                .foregroundStyle(Theme.textPrimary)
 
             Text(card.body)
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             if let firstSource = card.sources.first, let sourceURL = URL(string: firstSource.url) {
                 Link(firstSource.publisher, destination: sourceURL)
                     .font(.caption)
+                    .foregroundStyle(Theme.accentText)
             }
 
             Spacer(minLength: 0)
@@ -48,6 +52,7 @@ struct CardView: View {
         .padding()
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
     }
 }

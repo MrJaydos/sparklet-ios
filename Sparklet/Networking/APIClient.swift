@@ -53,6 +53,15 @@ struct APIClient {
         let _: EmptyDecodable = try await send(request, token: token)
     }
 
+    // Same shape as deleteDiscardingResponse — PATCH /api/friends/[id]
+    // (accept a request) ignores its request body and returns `{ ok: true }`,
+    // nothing a caller needs back.
+    func patchDiscardingResponse(_ path: String, token: String?) async throws {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appendingPathComponent(path))
+        request.httpMethod = "PATCH"
+        let _: EmptyDecodable = try await send(request, token: token)
+    }
+
     private func send<Response: Decodable>(_ request: URLRequest, token: String?) async throws -> Response {
         var request = request
         if let token {

@@ -7,29 +7,41 @@ struct LoginView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Sparklet")
+        VStack(spacing: 20) {
+            // Mirrors the web login page's "✨ Sparklet" wordmark and
+            // subtitle (sparklet/src/app/login/page.tsx).
+            Text("✨ Sparklet")
                 .font(.largeTitle.bold())
+                .foregroundStyle(Theme.textPrimary)
+            Text("Learn something real, one swipe at a time.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textTertiary)
 
             Button {
                 Task { await signIn() }
             } label: {
-                if isSigningIn {
-                    ProgressView()
-                } else {
-                    Text("Sign in")
+                Group {
+                    if isSigningIn {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Sign in").font(.headline)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
-            .buttonStyle(.borderedProminent)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 12))
+            .foregroundStyle(.white)
             .disabled(isSigningIn)
+            .padding(.top, 8)
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.dangerText)
             }
         }
-        .padding()
+        .padding(24)
     }
 
     private func signIn() async {

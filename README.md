@@ -31,7 +31,8 @@ the port from that repo's `npm run dev` (`PORT=3001`), e.g.
 
 ## Status
 
-Scaffold only — see `AGENTS.md` for what's implemented vs. still needed
-(most importantly: the backend's native token-auth endpoint doesn't exist
-yet, so `LoginController`'s flow will complete the web login but the app
-won't actually receive a token until that lands).
+See `AGENTS.md` for the full status and what's still open. Feed, read
+tracking, header stats, sign-in, and quiz/guess/misconception/review/
+explain answering are all built and verified end-to-end against
+production as of 2026-07-29 (real sign-in, real feed data, a real guess
+answered for XP).

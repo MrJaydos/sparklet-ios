@@ -13,59 +13,79 @@ import SwiftUI
 struct FeedView: View {
     @StateObject private var viewModel: FeedViewModel
     @StateObject private var statsViewModel: StatsHeaderViewModel
+    @StateObject private var notificationsViewModel: NotificationsViewModel
+    @StateObject private var friendsViewModel: FriendsViewModel
     @State private var visibleCardId: String?
+    @State private var isRefreshing = false
+    @State private var showingNotifications = false
+    @State private var showingFriends = false
 
     init(authSession: AuthSession) {
         _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession))
         _statsViewModel = StateObject(wrappedValue: StatsHeaderViewModel(authSession: authSession))
+        _notificationsViewModel = StateObject(wrappedValue: NotificationsViewModel(authSession: authSession))
+        _friendsViewModel = StateObject(wrappedValue: FriendsViewModel(authSession: authSession))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            StatsHeaderView(profile: statsViewModel.profile)
-                .padding(.vertical, 8)
+            StatsHeaderView(
+                profile: statsViewModel.profile,
+                isRefreshing: isRefreshing,
+                onRefresh: { Task { await refresh() } },
+                unreadNotifications: notificationsViewModel.unreadCount,
+                onOpenNotifications: { showingNotifications = true },
+                onOpenFriends: { showingFriends = true }
+            )
+            .padding(.vertical, 8)
 
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(viewModel.cards) { card in
-                        CardView(card: card)
+                    ForEach(viewModel.items) { item in
+                        itemView(item)
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
                             .containerRelativeFrame(.vertical)
-                            .id(card.id)
+                            .id(item.id)
                     }
                 }
                 .scrollTargetLayout()
             }
+            .scrollContentBackground(.hidden)
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $visibleCardId)
         }
+        .background(Theme.background)
         .overlay {
-            if viewModel.isLoading && viewModel.cards.isEmpty {
-                ProgressView()
+            if viewModel.isLoading && viewModel.items.isEmpty {
+                ProgressView().tint(Theme.textTertiary)
             }
-        }
-        .refreshable {
-            await viewModel.load()
-            // `load()` replaces the batch outright, so the old id (if it
-            // even still exists in the new batch) shouldn't carry over —
-            // reset to the new first card, same as the initial-load seed
-            // below, so tracking picks up on card 1 of the refreshed feed.
-            visibleCardId = viewModel.cards.first?.id
         }
         .task {
             await viewModel.loadIfNeeded()
             // .scrollPosition(id:) only reports changes after the initial
             // layout — it doesn't seed `visibleCardId` with whatever's
-            // visible on first appearance. Without this, card 1 is never
+            // visible on first appearance. Without this, item 1 is never
             // tracked and the read-tracking .task below only starts firing
-            // once the user scrolls to card 2.
+            // once the user scrolls to item 2.
             if visibleCardId == nil {
-                visibleCardId = viewModel.cards.first?.id
+                visibleCardId = viewModel.items.first?.id
             }
             await statsViewModel.load()
+            await notificationsViewModel.refreshUnreadCount()
+        }
+        .sheet(isPresented: $showingNotifications) {
+            NotificationsView(viewModel: notificationsViewModel)
+        }
+        .sheet(isPresented: $showingFriends) {
+            FriendsView(viewModel: friendsViewModel)
         }
         .task(id: visibleCardId) {
-            guard let visibleCardId else { return }
-            if let xp = await viewModel.trackView(cardId: visibleCardId) {
+            // Only a `.card` item feeds the dwell-tracked read flow — a
+            // quiz/guess/misconception/explain slot earns XP through its own
+            // answer endpoint instead (see FeedItem.cardIdForReadTracking).
+            guard let cardId = currentItem?.cardIdForReadTracking else { return }
+            if let xp = await viewModel.trackView(cardId: cardId) {
                 statsViewModel.apply(xp)
             }
         }
@@ -76,7 +96,7 @@ struct FeedView: View {
         // independently on the same visibleCardId change.
         .task(id: visibleCardId) {
             guard let visibleCardId else { return }
-            await viewModel.loadMoreIfNeeded(currentId: visibleCardId)
+            await viewModel.loadMoreIfNeeded(visibleItemId: visibleCardId)
         }
         .alert(
             "Something went wrong",
@@ -88,6 +108,75 @@ struct FeedView: View {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+    }
+
+    private var currentItem: FeedItem? {
+        guard let visibleCardId else { return nil }
+        return viewModel.items.first { $0.id == visibleCardId }
+    }
+
+    // An explicit button instead of `.refreshable`: this feed pages
+    // vertically (`.scrollTargetBehavior(.paging)`), and simulator testing
+    // on 2026-07-29 showed a deliberate pull-down at the true top of
+    // content produces no rubber-band or refresh spinner at all — paging
+    // fully consumes the overscroll gesture before SwiftUI's refresh
+    // control ever sees it. Rather than fight that, this button gives the
+    // same "give me a fresh read" action a guaranteed-reachable affordance.
+    private func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await viewModel.load()
+        // `load()` replaces the batch outright, so the old id (if it even
+        // still exists in the new batch) shouldn't carry over — reset to
+        // the new first item, same as the initial-load seed above, so
+        // tracking picks up on item 1 of the refreshed feed.
+        visibleCardId = viewModel.items.first?.id
+    }
+
+    @ViewBuilder
+    private func itemView(_ item: FeedItem) -> some View {
+        switch item {
+        case .card(let card):
+            CardView(card: card)
+        case .quiz(let quiz):
+            QuizCardView(
+                question: quiz.question,
+                options: quiz.options,
+                category: quiz.category,
+                isReview: false,
+                onSubmit: { index in await viewModel.answerQuiz(id: quiz.id, index: index) },
+                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+            )
+        case .reviewQuiz(let quiz):
+            QuizCardView(
+                question: quiz.question,
+                options: quiz.options,
+                category: quiz.category,
+                isReview: true,
+                onSubmit: { index in await viewModel.answerReview(id: quiz.id, index: index) },
+                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+            )
+        case .guess(let guess):
+            GuessCardView(
+                guess: guess,
+                onSubmit: { value in await viewModel.answerGuess(id: guess.id, guess: value) },
+                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+            )
+        case .misconception(let misconception):
+            MisconceptionCardView(
+                misconception: misconception,
+                onSubmit: { choice in await viewModel.answerMisconception(id: misconception.id, guess: choice) },
+                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+            )
+        case .explain(let prompt):
+            ExplainCardView(
+                prompt: prompt,
+                onSubmit: { text in await viewModel.answerExplain(cardId: prompt.id, text: text) },
+                onSkip: { await viewModel.skipExplain(cardId: prompt.id) },
+                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+            )
         }
     }
 }
