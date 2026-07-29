@@ -7,6 +7,21 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**`DEVELOPMENT_TEAM` set 2026-07-29 (`K4JYC7UP3A`)** — the user's real
+Apple Developer Team ID, set in `project.yml`. Confirmed the project still
+builds cleanly for the simulator with it set (simulator builds don't
+exercise real code signing, so this doesn't itself prove a device/archive
+build works, just that the setting is wired correctly). This unblocks two
+previously-noted follow-ups, though neither is fully closed yet:
+- **Invite Universal Links** ("Still open" #7): the AASA file's `appID`
+  can now be a real value (`K4JYC7UP3A.com.sparklet.ios`) instead of a
+  placeholder — still needs that file actually published at
+  `sparkletapp.com/.well-known/apple-app-site-association` (a `sparklet`
+  backend repo change, not this one) before it does anything.
+- **Real device / TestFlight builds and StoreKit App Store Connect setup**
+  ("Still open" #9): still separately blocked on an actual App Store
+  Connect app record existing, which a Team ID alone doesn't create.
+
 **Native ads (AdMob) built 2026-07-29** — closes the gap flagged by the
 user ("did you bake the ads that were in the main build into the iOS as
 well?") and scoped in the now-removed "Ads" section below. First
@@ -577,17 +592,18 @@ UI that matches them rather than fights them:
    faster than its snap animation could settle. Worth a light on-device
    sanity check (a few quick manual swipe-reversals) but not worth chasing
    further from this one occurrence under artificial conditions.
-7. **Invite Universal Links need a real Apple Developer Team ID.** The
-   `applinks:sparkletapp.com` entitlement is wired in `project.yml`, and
-   `RootView` already handles `onContinueUserActivity(.browsingWeb)`
-   correctly (see Status above) — but activation also requires a signed
-   `apple-app-site-association` file at `sparkletapp.com/.well-known/`
-   whose `appID` is `"<TEAM_ID>.com.sparklet.ios"`, which needs the real
-   team ID from `DEVELOPMENT_TEAM` once that's set. Until then, invite
-   links still work today, just by opening in Safari instead of the app.
-   Once a team ID exists: add that AASA route to the `sparklet` repo, set
-   `DEVELOPMENT_TEAM` in `project.yml`, and verify with a real device (the
-   simulator can't validate a genuine AASA against Apple's CDN).
+7. **Invite Universal Links: `DEVELOPMENT_TEAM` now set (2026-07-29,
+   `K4JYC7UP3A`), AASA file still not published — this is the one
+   remaining step.** The `applinks:sparkletapp.com` entitlement is wired
+   in `project.yml`, and `RootView` already handles
+   `onContinueUserActivity(.browsingWeb)` correctly (see Status above) —
+   activation still needs a signed `apple-app-site-association` file at
+   `sparkletapp.com/.well-known/` whose `appID` is
+   `"K4JYC7UP3A.com.sparklet.ios"`, added to the `sparklet` backend repo
+   (not this one). Until that file exists, invite links still work today,
+   just by opening in Safari instead of the app. Once added: verify with a
+   real device (the simulator can't validate a genuine AASA against
+   Apple's CDN).
 8. **UI interaction verification gap, applies to every screen built
    2026-07-29 (Notifications through Knowledge map).** This session had no
    Accessibility permission for `System Events`, so no simulator taps
@@ -602,13 +618,12 @@ UI that matches them rather than fights them:
    gap across the board rather than one screen at a time.
 9. ~~StoreKit purchase flow unverified~~ **Resolved 2026-07-29** — the user
    completed a real test purchase in Xcode and confirmed `UpgradeView`
-   correctly showed "You're Premium" afterward. See Status above. Only
-   remaining follow-up, and only once a real Apple Developer Team ID and
-   App Store Connect app record exist: create the two subscription
-   products with IDs matching `Sparklet.storekit` exactly
-   (`com.sparklet.ios.premium.monthly`/`.annual`), register
-   `POST /api/billing/apple/notifications`'s URL there, and set
-   `DEVELOPMENT_TEAM` in `project.yml`.
+   correctly showed "You're Premium" afterward. See Status above.
+   `DEVELOPMENT_TEAM` is now set (`K4JYC7UP3A`); the only remaining
+   follow-up is once an App Store Connect app record exists: create the
+   two subscription products with IDs matching `Sparklet.storekit` exactly
+   (`com.sparklet.ios.premium.monthly`/`.annual`) and register
+   `POST /api/billing/apple/notifications`'s URL there.
 10. **Related-cards menu is informational only, not navigable.** `CardView`'s
     🧭 related-cards `Menu` (see Status above) lists `FeedCard.related`'s
     titles/icons but can't link anywhere — the web links to `/card/[id]`,
@@ -642,8 +657,10 @@ needs its `platform` column anyway).
 
 **Tier 2 — done as of 2026-07-29, see Status above.** Knowledge map and
 Invite were both built; Invite's inbound Universal Link delivery is the one
-piece still blocked, on a real Apple Developer Team ID rather than more
-engineering — see the Status entry for exactly what's wired vs. pending.
+piece still blocked — `DEVELOPMENT_TEAM` is now set, so the only remaining
+step is publishing the signed AASA file on the `sparklet` backend repo, not
+more engineering here — see "Still open" #7 for exactly what's wired vs.
+pending.
 
 **Not planned for mobile:**
 

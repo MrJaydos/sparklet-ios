@@ -43,9 +43,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sparklet.ios
-        # No team set — fill in DEVELOPMENT_TEAM (or set it in Xcode's
-        # Signing & Capabilities tab after generating the project) once you
-        # have an Apple Developer account attached.
+        DEVELOPMENT_TEAM: K4JYC7UP3A
         ENABLE_PREVIEWS: "YES"
     # All Info.plist keys are set here as raw plist entries rather than via
     # INFOPLIST_KEY_* build settings — mixing the two mechanisms with an
@@ -138,13 +136,11 @@ targets:
     # instead of just Safari. The entitlement alone isn't enough to activate
     # it — Apple also verifies a signed apple-app-site-association file at
     # https://sparkletapp.com/.well-known/apple-app-site-association whose
-    # appID is "<TEAM_ID>.com.sparklet.ios". Not added to the backend yet:
-    # there's no real Apple Developer Team ID configured in this project
-    # (see DEVELOPMENT_TEAM above), and publishing an AASA with a made-up
-    # team ID to production would just be silently wrong. Until then,
-    # sharing still works via the plain https:// link (opens in Safari,
-    # same as today) — this entitlement only upgrades that once a team ID
-    # exists.
+    # appID is "K4JYC7UP3A.com.sparklet.ios" (DEVELOPMENT_TEAM above, now
+    # set). Not added to the backend yet — that's the one remaining step,
+    # tracked in AGENTS.md's "Still open" section. Until then, sharing still
+    # works via the plain https:// link (opens in Safari, same as today) —
+    # this entitlement only upgrades that once the AASA is published.
     entitlements:
       path: Sparklet/Sparklet.entitlements
       properties:
