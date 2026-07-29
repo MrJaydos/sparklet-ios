@@ -29,9 +29,9 @@ struct FeedView: View {
     @State private var showingStreakInfo = false
     @State private var showingXpInfo = false
 
-    init(authSession: AuthSession) {
+    init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
-        _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession))
+        _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession, purchaseManager: purchaseManager))
         _statsViewModel = StateObject(wrappedValue: StatsHeaderViewModel(authSession: authSession))
         _notificationsViewModel = StateObject(wrappedValue: NotificationsViewModel(authSession: authSession))
         _friendsViewModel = StateObject(wrappedValue: FriendsViewModel(authSession: authSession))
@@ -230,6 +230,8 @@ struct FeedView: View {
                 onSkip: { await viewModel.skipExplain(cardId: prompt.id) },
                 onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
             )
+        case .ad:
+            AdSlideView()
         }
     }
 }

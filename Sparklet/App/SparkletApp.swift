@@ -29,6 +29,7 @@ struct SparkletApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     purchaseManager.startListeningForTransactionUpdates()
+                    await AdsManager.start()
                 }
         }
     }
@@ -36,13 +37,14 @@ struct SparkletApp: App {
 
 private struct RootView: View {
     @EnvironmentObject private var authSession: AuthSession
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @State private var pendingInviteRefId: String?
 
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
             if authSession.isSignedIn {
-                FeedView(authSession: authSession)
+                FeedView(authSession: authSession, purchaseManager: purchaseManager)
             } else {
                 LoginView()
             }

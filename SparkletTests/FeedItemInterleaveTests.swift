@@ -119,7 +119,8 @@ final class FeedItemInterleaveTests: XCTestCase {
             reviewQuizzes: [],
             guesses: makeGuesses(2),
             misconceptions: makeMisconceptions(2),
-            explainPrompts: []
+            explainPrompts: [],
+            premium: true // isolates interleave-offset logic from ad slots, covered separately below
         )
         let card12Index = items.firstIndex { $0.id == "card-card12" }!
         let card13Index = items.firstIndex { $0.id == "card-card13" }!
@@ -136,7 +137,8 @@ final class FeedItemInterleaveTests: XCTestCase {
     // crash or repeat the first quiz.
     func testStopsInsertingOnceThePoolIsExhausted() {
         let items = FeedViewModel.buildItems(
-            cards: makeCards(20), quizzes: makeQuizzes(1), reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: []
+            cards: makeCards(20), quizzes: makeQuizzes(1), reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true // isolates pool-exhaustion logic from ad slots, covered separately below
         )
         let quizIndices = items.indices.filter { if case .quiz = items[$0] { return true }; return false }
         XCTAssertEqual(quizIndices.count, 1)
@@ -148,7 +150,8 @@ final class FeedItemInterleaveTests: XCTestCase {
     // round(9/3)=3 and round(18/3)=6, each flushed just BEFORE that card.
     func testReviewQuizzesSpreadEvenlyAndFlushBeforeTheirCard() {
         let items = FeedViewModel.buildItems(
-            cards: makeCards(9), quizzes: [], reviewQuizzes: makeReviewQuizzes(2), guesses: [], misconceptions: [], explainPrompts: []
+            cards: makeCards(9), quizzes: [], reviewQuizzes: makeReviewQuizzes(2), guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true // isolates review-quiz spread logic from ad slots, covered separately below
         )
         XCTAssertEqual(
             items.map(\.id),
@@ -193,5 +196,28 @@ final class FeedItemInterleaveTests: XCTestCase {
                 XCTAssertNil(item.cardIdForReadTracking, "\(item) must not be read-trackable")
             }
         }
+    }
+
+    // Ad lands after every 6th card (AD_EVERY = 6) for a free-tier user —
+    // mirrors Feed.tsx/AdSlide.tsx's own placement.
+    func testAdLandsAfterEverySixthCardForFreeTier() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(12), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: false
+        )
+        let adIndices = items.indices.filter { if case .ad = items[$0] { return true }; return false }
+        XCTAssertEqual(adIndices.count, 2)
+        XCTAssertEqual(items[adIndices[0] - 1].id, "card-card6")
+        XCTAssertEqual(items[adIndices[1] - 1].id, "card-card12")
+    }
+
+    // Never pushed at all for premium users — no dead ad slide in a paying
+    // user's scroll, per the comment on buildItems.
+    func testNoAdsForPremiumUsers() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(12), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true
+        )
+        XCTAssertFalse(items.contains { if case .ad = $0 { return true }; return false })
     }
 }

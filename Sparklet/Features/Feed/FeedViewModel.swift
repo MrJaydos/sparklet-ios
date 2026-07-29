@@ -9,6 +9,7 @@ final class FeedViewModel: ObservableObject {
     private let api = FeedAPI()
     private let answersAPI = AnswersAPI()
     private let authSession: AuthSession
+    private let purchaseManager: PurchaseManager
 
     // Cumulative pools behind `items` — kept separately because interleaving
     // is recomputed from scratch over everything loaded so far every time a
@@ -21,8 +22,9 @@ final class FeedViewModel: ObservableObject {
     private var misconceptions: [FeedMisconception] = []
     private var explainPrompts: [FeedExplainPrompt] = []
 
-    init(authSession: AuthSession) {
+    init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
+        self.purchaseManager = purchaseManager
     }
 
     func loadIfNeeded() async {
@@ -97,7 +99,12 @@ final class FeedViewModel: ObservableObject {
             reviewQuizzes: reviewQuizzes,
             guesses: guesses,
             misconceptions: misconceptions,
-            explainPrompts: explainPrompts
+            explainPrompts: explainPrompts,
+            // Re-evaluated fresh on every rebuild (a fresh load/pagination),
+            // not observed live — a user who subscribes mid-scroll stops
+            // seeing new ad slides on their next load/refresh, not
+            // retroactively mid-session. See AGENTS.md.
+            premium: purchaseManager.premium
         )
     }
 
@@ -108,6 +115,7 @@ final class FeedViewModel: ObservableObject {
     private static let misconceptionOffset = 2
     private static let explainEvery = 12
     private static let explainOffset = 3
+    private static let adEvery = 6
 
     // Ports Feed.tsx's exact interleave offsets: quiz lands on card 10, 20,
     // 30…; guess on 1, 13, 25…; misconception on 2, 12, 22…; explain on
@@ -128,7 +136,8 @@ final class FeedViewModel: ObservableObject {
         reviewQuizzes: [FeedReviewQuiz],
         guesses: [FeedGuess],
         misconceptions: [FeedMisconception],
-        explainPrompts: [FeedExplainPrompt]
+        explainPrompts: [FeedExplainPrompt],
+        premium: Bool = false
     ) -> [FeedItem] {
         var result: [FeedItem] = []
         var quizCursor = 0
@@ -163,6 +172,12 @@ final class FeedViewModel: ObservableObject {
             if position % explainEvery == explainOffset, explainCursor < explainPrompts.count {
                 result.append(.explain(explainPrompts[explainCursor]))
                 explainCursor += 1
+            }
+            // Ports Feed.tsx's own comment verbatim: "never pushed at all
+            // for premium users, not just hidden, so there's no dead ad
+            // slide in a paying user's scroll."
+            if !premium, position % adEvery == 0 {
+                result.append(.ad(key: position))
             }
         }
         while reviewQuizCursor < reviewQuizzes.count {

@@ -15,12 +15,31 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1" # iPhone only for v1; add "1,2" for iPad later
 
+packages:
+  # First third-party dependency this app has — everything else is
+  # first-party Swift. GoogleMobileAds's own Package.swift depends on
+  # GoogleUserMessagingPlatform (UMP, the GDPR/ATT consent flow) and SPM
+  # resolves it automatically, but that's a link-time detail only — our own
+  # target still needs its own explicit `dependencies:` entry below (and
+  # this matching `packages:` entry) before `import UserMessagingPlatform`
+  # resolves in our Swift code. Confirmed by a real build failure
+  # ("cannot find 'ConsentInformation' in scope" etc.) before this was added.
+  GoogleMobileAds:
+    url: https://github.com/googleads/swift-package-manager-google-mobile-ads.git
+    exactVersion: 13.7.0
+  GoogleUserMessagingPlatform:
+    url: https://github.com/googleads/swift-package-manager-google-user-messaging-platform.git
+    exactVersion: 3.1.0
+
 targets:
   Sparklet:
     type: application
     platform: iOS
     sources:
       - path: Sparklet
+    dependencies:
+      - package: GoogleMobileAds
+      - package: GoogleUserMessagingPlatform
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sparklet.ios
@@ -38,6 +57,69 @@ targets:
         CFBundleDisplayName: Sparklet
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Google's public test AdMob app id (ca-app-pub-3940256099942544~...
+        # is Google's own documented sample id, safe to ship — never resolves
+        # to real ad inventory or spend). Swap for the app's own id from the
+        # AdMob console once one is created (see AGENTS.md) — ads on a real
+        # device/build with this test id would otherwise show only Google's
+        # test creatives forever, not real inventory.
+        GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511"
+        # Only shown if AdsManager actually requests ATT (see its comment on
+        # why the UMP consent flow decides that, not this string's presence
+        # alone) — copy matches the tone of the web's own ad framing
+        # ("Sponsored" label in AdSlide.tsx), not a generic template line.
+        NSUserTrackingUsageDescription: "Sparklet shows ads to free-tier users. Allowing tracking lets those ads be more relevant instead of random."
+        SKAdNetworkItems:
+          - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
+          - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork
+          - SKAdNetworkIdentifier: 2fnua5tdw4.skadnetwork
+          - SKAdNetworkIdentifier: ydx93a7ass.skadnetwork
+          - SKAdNetworkIdentifier: p78axxw29g.skadnetwork
+          - SKAdNetworkIdentifier: v72qych5uu.skadnetwork
+          - SKAdNetworkIdentifier: ludvb6z3bs.skadnetwork
+          - SKAdNetworkIdentifier: cp8zw746q7.skadnetwork
+          - SKAdNetworkIdentifier: 3sh42y64q3.skadnetwork
+          - SKAdNetworkIdentifier: c6k4g5qg8m.skadnetwork
+          - SKAdNetworkIdentifier: s39g8k73mm.skadnetwork
+          - SKAdNetworkIdentifier: wg4vff78zm.skadnetwork
+          - SKAdNetworkIdentifier: 3qy4746246.skadnetwork
+          - SKAdNetworkIdentifier: f38h382jlk.skadnetwork
+          - SKAdNetworkIdentifier: hs6bdukanm.skadnetwork
+          - SKAdNetworkIdentifier: mlmmfzh3r3.skadnetwork
+          - SKAdNetworkIdentifier: v4nxqhlyqp.skadnetwork
+          - SKAdNetworkIdentifier: wzmmz9fp6w.skadnetwork
+          - SKAdNetworkIdentifier: su67r6k2v3.skadnetwork
+          - SKAdNetworkIdentifier: yclnxrl5pm.skadnetwork
+          - SKAdNetworkIdentifier: t38b2kh725.skadnetwork
+          - SKAdNetworkIdentifier: 7ug5zh24hu.skadnetwork
+          - SKAdNetworkIdentifier: gta9lk7p23.skadnetwork
+          - SKAdNetworkIdentifier: vutu7akeur.skadnetwork
+          - SKAdNetworkIdentifier: y5ghdn5j9k.skadnetwork
+          - SKAdNetworkIdentifier: v9wttpbfk9.skadnetwork
+          - SKAdNetworkIdentifier: n38lu8286q.skadnetwork
+          - SKAdNetworkIdentifier: 47vhws6wlr.skadnetwork
+          - SKAdNetworkIdentifier: kbd757ywx3.skadnetwork
+          - SKAdNetworkIdentifier: 9t245vhmpl.skadnetwork
+          - SKAdNetworkIdentifier: a2p9lx4jpn.skadnetwork
+          - SKAdNetworkIdentifier: 22mmun2rn5.skadnetwork
+          - SKAdNetworkIdentifier: 44jx6755aq.skadnetwork
+          - SKAdNetworkIdentifier: k674qkevps.skadnetwork
+          - SKAdNetworkIdentifier: 4468km3ulz.skadnetwork
+          - SKAdNetworkIdentifier: 2u9pt9hc89.skadnetwork
+          - SKAdNetworkIdentifier: 8s468mfl3y.skadnetwork
+          - SKAdNetworkIdentifier: klf5c3l5u5.skadnetwork
+          - SKAdNetworkIdentifier: ppxm28t8ap.skadnetwork
+          - SKAdNetworkIdentifier: kbmxgpxpgc.skadnetwork
+          - SKAdNetworkIdentifier: uw77j35x4d.skadnetwork
+          - SKAdNetworkIdentifier: 578prtvx9j.skadnetwork
+          - SKAdNetworkIdentifier: 4dzt52r2t5.skadnetwork
+          - SKAdNetworkIdentifier: tl55sbb4fm.skadnetwork
+          - SKAdNetworkIdentifier: c3frkrj4fj.skadnetwork
+          - SKAdNetworkIdentifier: e5fvkxwrpn.skadnetwork
+          - SKAdNetworkIdentifier: 8c4e2ghe7u.skadnetwork
+          - SKAdNetworkIdentifier: 3rd42ekr43.skadnetwork
+          - SKAdNetworkIdentifier: 97r2b46745.skadnetwork
+          - SKAdNetworkIdentifier: 3qcr597p9d.skadnetwork
         # Must exactly match an entry in the backend's ALLOWED_MOBILE_SCHEMES
         # (sparklet repo: src/lib/mobile-auth.ts) and AppConfig.authCallbackScheme
         # — the one-time login code's deep-link redirect lands here. See

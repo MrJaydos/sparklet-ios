@@ -13,6 +13,9 @@ enum FeedItem: Identifiable, Hashable {
     case guess(FeedGuess)
     case misconception(FeedMisconception)
     case explain(FeedExplainPrompt)
+    // No server-side model — mirrors Feed.tsx's `{ kind: "ad", adKey }`,
+    // a client-side-only slide inserted by the interleave, never fetched.
+    case ad(key: Int)
 
     var id: String {
         switch self {
@@ -22,6 +25,7 @@ enum FeedItem: Identifiable, Hashable {
         case .guess(let g): return "guess-\(g.id)"
         case .misconception(let m): return "misconception-\(m.id)"
         case .explain(let e): return "explain-\(e.id)"
+        case .ad(let key): return "ad-\(key)"
         }
     }
 
