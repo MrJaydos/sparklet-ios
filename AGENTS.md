@@ -7,6 +7,71 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Native StoreKit 2 (Apple IAP) premium purchases built 2026-07-29** — the
+user decided to accept Apple's cut rather than ship iOS without a purchase
+path (resolves "Needs a decision before any code" below). A second billing
+rail alongside Stripe, not a replacement — `isPremium()` now ORs both.
+
+- Backend (`sparklet` repo, deployed): `User` gained
+  `appleOriginalTransactionId`/`appleExpiresAt`/`appleRevoked`, mirroring
+  the Stripe fields' derived-at-read-time philosophy. `src/lib/apple-iap.ts`
+  wraps `@apple/app-store-server-library`'s `SignedDataVerifier` against
+  Apple's public root CA (`certs/AppleRootCA-G3.cer`) — verifying a
+  client-submitted transaction needs only the app's bundle id, nothing from
+  App Store Connect. `POST /api/billing/apple/verify` is the primary
+  reconciliation path (client hands over a signed transaction, gets back
+  authoritative `premium`/`expiresAt`); `POST /api/billing/apple/
+  notifications` (App Store Server Notifications V2) is the webhook
+  equivalent for renewals/refunds while the app isn't open — inert until
+  its URL is registered in App Store Connect, which needs the app record to
+  exist there first. `GET /api/profile/details` now echoes `premium`.
+  Verified: full production `next build`, `tsc`/`eslint` clean, and a live
+  local dev server smoke-test of all three routes: `verify` and
+  `notifications` correctly reject bad input using the real deployed
+  `SignedDataVerifier`, matching production behavior confirmed after push.
+- iOS: `PurchaseManager` (`Features/Billing/`) wraps `Product.products(for:)`,
+  `product.purchase()`, a `Transaction.updates` listener started once at
+  launch (an app-wide `@EnvironmentObject`, the only genuine singleton
+  besides `AuthSession` — every other feature is a fresh per-screen view
+  model), `AppStore.sync()` for restore, and `Transaction.currentEntitlements`
+  for self-correcting `premium` on every Upgrade screen visit.
+  `UpgradeView` mirrors the web's `/upgrade` page, reachable from a new
+  "✨ Go Premium"/"You're Premium" row in `ProfileView` (label driven by the
+  server's `premium` field; `PurchaseManager`'s own StoreKit-sourced state
+  takes over once the sheet is open). `Sparklet.storekit` defines two local
+  test products (`com.sparklet.ios.premium.{monthly,annual}` in a "Premium"
+  subscription group) for Simulator-only testing with no App Store Connect
+  account, Team ID, or network required — wired into a proper top-level
+  `schemes:` block in `project.yml` (not the target's inline `scheme:`
+  shorthand) so both the Run and Test actions get it.
+- **Not verified live**: the actual purchase flow. Tried two paths and hit
+  a real platform wall, not a gap in the work: (1) Apple's own `SKTestSession`
+  (the sanctioned way to drive a purchase without UI, via
+  `disableDialogs`) failed at the OS level in this sandbox regardless of
+  retries or a simulator reboot; (2) `Product.products(for:)` returned
+  empty via every CLI path tried (`xcrun simctl launch`, `xcodebuild
+  test` with the StoreKit config wired into both scheme actions) — this
+  turned out to be a **documented Apple regression specific to iOS 26.5
+  simulators**: `xcodebuild`/`simctl` never push a scheme's
+  `StoreKitConfigurationFileReference` to the simulator at all; only
+  Xcode's own IDE process (the literal Run/Test buttons, Cmd+U) can, via
+  an internal XPC path the public CLI doesn't invoke (see
+  developer.apple.com/forums/thread/798546). So `Sparklet.storekit`'s
+  content is unverified — rewritten partway through to match a
+  confirmed-working example from a real GitHub repo (`major: 2` schema,
+  no `winbackOffers` key) rather than the original hand-guessed version,
+  but the only way to actually confirm it loads products is opening the
+  project in real Xcode and hitting Run or Cmd+U — something this
+  CLI-only session cannot do. **Do this first** before assuming the
+  purchase flow works.
+- Also chasing that: the local Next.js dev server was used for live
+  backend testing, which 401'd the simulator's stored Bearer token
+  (minted against production, not the local dev DB) and triggered an
+  automatic sign-out. Re-signing in needs a real interactive Google OAuth
+  tap, which isn't scriptable here — the user did this manually mid-session.
+  If this happens again: don't point `AppConfig.apiBaseURL` at a local
+  backend on a simulator you need to stay signed in on production.
+
 **Tier 2 (Knowledge map, Invite) built and verified live 2026-07-29** —
 closes out both items scoped as "own project, not a quick add" below.
 
@@ -418,6 +483,20 @@ UI that matches them rather than fights them:
    code-reviewed ports of already-proven web logic, not click-tested. A
    future pass with Accessibility permission (or `idb`) should close this
    gap across the board rather than one screen at a time.
+9. **StoreKit purchase flow needs verification in real Xcode, not just this
+   CLI-only session.** See the Status entry above — `xcodebuild`/`simctl`
+   can't push a StoreKit configuration to the simulator at all (a
+   documented iOS 26.5 regression), so `Product.products(for:)` returning
+   real products, an actual purchase completing, and the resulting
+   `POST /api/billing/apple/verify` round trip have never been observed
+   working. Open the project in Xcode, hit Run (or Cmd+U), and open the
+   Upgrade screen — do this before trusting the purchase path in any
+   real capacity. Separately, once a real Apple Developer Team ID and App
+   Store Connect app record exist: create the two subscription products
+   with IDs matching `Sparklet.storekit` exactly
+   (`com.sparklet.ios.premium.monthly`/`.annual`), register
+   `POST /api/billing/apple/notifications`'s URL there, and set
+   `DEVELOPMENT_TEAM` in `project.yml`.
 
 ## Screens not yet built (scoped 2026-07-29)
 
@@ -446,19 +525,10 @@ engineering — see the Status entry for exactly what's wired vs. pending.
 - **Admin**: internal moderation tool, not an end-user surface — no reason
   to port it to a consumer mobile app.
 
-**Needs a decision before any code, not just scoping:**
-
-- **Upgrade/billing**: `POST /api/billing/{checkout,portal}` return
-  Stripe-hosted URLs — this is the web flow, and it is **not** just
-  "another API to call" for iOS. Apple's App Store Review Guideline 3.1.1
-  requires digital subscriptions unlocking in-app content to go through
-  StoreKit/In-App Purchase; linking out to Stripe checkout for this from a
-  native app risks rejection. Real options are (a) a full parallel
-  StoreKit 2 subscription implementation with server-side receipt
-  validation reconciled against the existing Stripe `premium` flag, or
-  (b) ship iOS without an in-app purchase path (read-only "already premium
-  via web" messaging). This is a product/business call, not an engineering
-  one — don't build a screen here without that decision first.
+**Upgrade/billing: decided and built 2026-07-29** — option (a), a full
+StoreKit 2 implementation, was chosen over shipping without a purchase
+path. See Status above for what's built vs. still needing manual App
+Store Connect setup + real-Xcode verification.
 
 ## Commands
 

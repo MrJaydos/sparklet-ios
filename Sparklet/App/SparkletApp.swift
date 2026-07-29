@@ -3,17 +3,33 @@ import UIKit
 
 @main
 struct SparkletApp: App {
-    @StateObject private var authSession = AuthSession()
+    @StateObject private var authSession: AuthSession
+    // A genuine app-wide singleton (unlike every other feature's
+    // per-screen view model) — StoreKit's Transaction.updates listener
+    // needs to run for the app's whole lifetime, not just while a
+    // particular sheet is on screen, and ProfileView/UpgradeView both need
+    // to observe the same live purchase state.
+    @StateObject private var purchaseManager: PurchaseManager
+
+    init() {
+        let session = AuthSession()
+        _authSession = StateObject(wrappedValue: session)
+        _purchaseManager = StateObject(wrappedValue: PurchaseManager(authSession: session))
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
+                .environmentObject(purchaseManager)
                 // The web app has no light mode (globals.css hardcodes a
                 // near-black background) — forcing dark here instead of
                 // adapting to the system setting keeps this app the same
                 // fixed theme, not a lighter variant.
                 .preferredColorScheme(.dark)
+                .task {
+                    purchaseManager.startListeningForTransactionUpdates()
+                }
         }
     }
 }

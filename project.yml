@@ -68,10 +68,6 @@ targets:
       properties:
         com.apple.developer.associated-domains:
           - applinks:sparkletapp.com
-    scheme:
-      testTargets:
-        - SparkletTests
-
   SparkletTests:
     type: bundle.unit-test
     platform: iOS
@@ -82,3 +78,39 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Sparklet
+
+# A full scheme spec (rather than the target's inline `scheme:` shorthand)
+# so storeKitConfiguration is set on both the run AND test actions — the
+# shorthand only wires it into the Run/Launch action.
+#
+# Neither actually helps from the command line, though: `xcrun simctl
+# launch` is a bare process spawn that bypasses Xcode's scheme machinery
+# entirely, and `xcodebuild test`/`build` never push a scheme's
+# StoreKitConfigurationFileReference to the simulator at all — confirmed via
+# `Product.products(for:)` returning empty regardless of which action
+# referenced the file, then via a web search turning up
+# https://developer.apple.com/forums/thread/798546 and others describing
+# this as a known regression specific to iOS 26.5 simulators: only Xcode's
+# own IDE process (the literal Run/Test buttons, or Cmd+U) can push the
+# config, using an internal XPC path `xcodebuild` doesn't invoke. So
+# `test:` here is real and will work the next time someone runs tests via
+# Xcode's GUI — it just couldn't be verified from this CLI-only session.
+schemes:
+  Sparklet:
+    build:
+      targets:
+        Sparklet: all
+    run:
+      config: Debug
+      storeKitConfiguration: Sparklet/Sparklet.storekit
+    test:
+      config: Debug
+      storeKitConfiguration: Sparklet/Sparklet.storekit
+      targets:
+        - SparkletTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

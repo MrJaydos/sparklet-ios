@@ -3,9 +3,11 @@ import SwiftUI
 struct ProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
     let authSession: AuthSession
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.dismiss) private var dismiss
     @StateObject private var mapViewModel: KnowledgeMapViewModel
     @State private var showingMap = false
+    @State private var showingUpgrade = false
 
     private static let statColumns = [GridItem(.flexible()), GridItem(.flexible())]
     private static let badgeColumns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
@@ -30,6 +32,7 @@ struct ProfileView: View {
                         freezeAndReviewsCaption(details)
                         inviteRow(details)
                         knowledgeMapRow(details)
+                        premiumRow(details)
                         badgesSection(details)
                         topTopicsSection(details)
                         notebookSection(details)
@@ -54,9 +57,40 @@ struct ProfileView: View {
         .sheet(isPresented: $showingMap) {
             KnowledgeMapView(viewModel: mapViewModel)
         }
+        .sheet(isPresented: $showingUpgrade) {
+            UpgradeView(purchaseManager: purchaseManager)
+        }
         .task {
             await viewModel.loadIfNeeded()
         }
+    }
+
+    // Server truth (GET /api/profile/details' `premium`) drives this row's
+    // label without needing a StoreKit round-trip — purchaseManager.premium
+    // (StoreKit's own local entitlement state) takes over as the live
+    // source of truth once the Upgrade sheet itself is open.
+    private func premiumRow(_ details: ProfileDetailsResponse) -> some View {
+        Button {
+            showingUpgrade = true
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(details.premium ? "✨ You're Premium" : "✨ Go Premium")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(details.premium ? Theme.accentText : Theme.textPrimary)
+                    Text(details.premium ? "Manage your subscription" : "No ads, unlimited Deeper reading")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding()
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(details.premium ? Theme.accent.opacity(0.5) : Theme.border))
+        }
+        .buttonStyle(.plain)
     }
 
     private func knowledgeMapRow(_ details: ProfileDetailsResponse) -> some View {

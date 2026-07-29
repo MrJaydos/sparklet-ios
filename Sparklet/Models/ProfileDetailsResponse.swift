@@ -9,6 +9,7 @@ struct ProfileDetailsResponse: Decodable {
     let id: String
     let name: String
     let email: String
+    let premium: Bool
     let xp: Int
     let currentStreak: Int
     let longestStreak: Int
