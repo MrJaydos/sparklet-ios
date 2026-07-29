@@ -22,6 +22,27 @@ final class FeedViewModel: ObservableObject {
     private var misconceptions: [FeedMisconception] = []
     private var explainPrompts: [FeedExplainPrompt] = []
 
+    // Once true, every subsequent pagination call asks the server for
+    // allowRepeats — the account has genuinely seen every unseen/due card at
+    // least once this session, and this is a TikTok-style feed meant to
+    // scroll for hours, not a fixed deck that dead-ends. Mirrors the web's
+    // own `exhausted` flag (sparklet/src/lib/feed.ts), except the web stops
+    // and shows a "You're all caught up" button for the user to opt into
+    // repeats manually — this client opts in automatically instead, since an
+    // endless feed is the whole product shape here.
+    private var exhausted = false
+
+    // Sent as `exclude` on every pagination call so the server doesn't
+    // resurface a card already on screen this session. Deliberately a
+    // recent window, not the full accumulated history: once `exhausted`
+    // flips true and the server starts returning previously-seen cards
+    // (allowRepeats), an ever-growing exclude list would also permanently
+    // exclude every repeat candidate after one lap through the pool —
+    // turning "endless scroll" into "ends after two laps instead of one."
+    // Bounding it lets cards fall back out of exclusion and recirculate.
+    private static let excludeWindow = 60
+    private var recentExcludeIds: [String] { cards.suffix(Self.excludeWindow).map(\.id) }
+
     init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
         self.purchaseManager = purchaseManager
@@ -38,20 +59,21 @@ final class FeedViewModel: ObservableObject {
     // "append more." (An earlier pass appended here, which combined badly
     // with .refreshable on a paged scroll view: the visible card never
     // changed, so nothing looked refreshed, while excludeIds grew without
-    // bound — see loadMore below for where that trade is actually made.)
+    // bound — see loadMoreIfNeeded below for where that trade is actually
+    // made.)
     func load() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let response = try await api.fetchFeed(take: 10, token: authSession.token)
-            cards = response.cards
-            quizzes = response.quizzes
-            reviewQuizzes = response.reviewQuizzes
-            guesses = response.guesses
-            misconceptions = response.misconceptions
-            explainPrompts = response.explainPrompts
-            rebuildItems()
+            var response = try await api.fetchFeed(take: 10, token: authSession.token)
+            if response.exhausted, Self.isEmpty(response) {
+                // A returning account that's already seen every card and has
+                // no due reviews — fall straight back to repeats rather than
+                // opening on an empty feed.
+                response = try await api.fetchFeed(take: 10, allowRepeats: true, token: authSession.token)
+            }
+            apply(response, append: false)
         } catch APIError.unauthorized {
             authSession.signOut()
         } catch {
@@ -60,36 +82,69 @@ final class FeedViewModel: ObservableObject {
     }
 
     // Pagination: appends the next batch once the visible item nears the
-    // end of what's loaded, excluding card ids already shown. Same
-    // excludeIds approach the web client uses for its session-seen set
-    // (Feed.tsx) — inherits the same eventual URL-length ceiling on very
-    // long sessions, not something to solve here without a matching backend
-    // change. Gated on position within `items`, not `cards` — the visible
-    // item may be a quiz/guess/etc. sitting between cards, and it still
-    // needs to trigger a load if it's near the tail of everything loaded.
+    // end of what's loaded. Gated on position within `items`, not `cards` —
+    // the visible item may be a quiz/guess/etc. sitting between cards, and
+    // it still needs to trigger a load if it's near the tail of everything
+    // loaded.
     func loadMoreIfNeeded(visibleItemId: String) async {
         guard !isLoading, let index = items.firstIndex(where: { $0.id == visibleItemId }) else { return }
         guard index >= items.count - 2 else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            let response = try await api.fetchFeed(
+            var response = try await api.fetchFeed(
                 take: 10,
-                excludeIds: cards.map(\.id),
+                allowRepeats: exhausted,
+                excludeIds: recentExcludeIds,
                 token: authSession.token
             )
+            if response.exhausted, Self.isEmpty(response), !exhausted {
+                // Just crossed into "seen everything new" for the first time
+                // this session — the call above already tried allowRepeats:
+                // false. Retry once, immediately, with allowRepeats: true so
+                // this single pagination trigger still makes forward
+                // progress: visibleCardId only changes when the user scrolls
+                // PAST the newly-loaded tail, which can never happen if
+                // nothing new got appended — there'd be nothing to trigger a
+                // second attempt.
+                response = try await api.fetchFeed(
+                    take: 10,
+                    allowRepeats: true,
+                    excludeIds: recentExcludeIds,
+                    token: authSession.token
+                )
+            }
+            apply(response, append: true)
+        } catch APIError.unauthorized {
+            authSession.signOut()
+        } catch {
+            // Best-effort — the user can still scroll what's already loaded.
+        }
+    }
+
+    private static func isEmpty(_ response: FeedResponse) -> Bool {
+        response.cards.isEmpty && response.quizzes.isEmpty && response.reviewQuizzes.isEmpty
+            && response.guesses.isEmpty && response.misconceptions.isEmpty && response.explainPrompts.isEmpty
+    }
+
+    private func apply(_ response: FeedResponse, append: Bool) {
+        if append {
             cards.append(contentsOf: response.cards)
             quizzes.append(contentsOf: response.quizzes)
             reviewQuizzes.append(contentsOf: response.reviewQuizzes)
             guesses.append(contentsOf: response.guesses)
             misconceptions.append(contentsOf: response.misconceptions)
             explainPrompts.append(contentsOf: response.explainPrompts)
-            rebuildItems()
-        } catch APIError.unauthorized {
-            authSession.signOut()
-        } catch {
-            // Best-effort — the user can still scroll what's already loaded.
+        } else {
+            cards = response.cards
+            quizzes = response.quizzes
+            reviewQuizzes = response.reviewQuizzes
+            guesses = response.guesses
+            misconceptions = response.misconceptions
+            explainPrompts = response.explainPrompts
         }
+        exhausted = response.exhausted
+        rebuildItems()
     }
 
     private func rebuildItems() {
@@ -156,7 +211,7 @@ final class FeedViewModel: ObservableObject {
                 result.append(.reviewQuiz(reviewQuizzes[reviewQuizCursor]))
                 reviewQuizCursor += 1
             }
-            result.append(.card(card))
+            result.append(.card(card, occurrence: i))
             if position % quizEvery == 0, quizCursor < quizzes.count {
                 result.append(.quiz(quizzes[quizCursor]))
                 quizCursor += 1

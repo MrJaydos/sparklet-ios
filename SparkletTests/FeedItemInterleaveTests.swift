@@ -61,7 +61,7 @@ final class FeedItemInterleaveTests: XCTestCase {
         let items = FeedViewModel.buildItems(
             cards: makeCards(5), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: []
         )
-        XCTAssertEqual(items.map(\.id), (1...5).map { "card-card\($0)" })
+        XCTAssertEqual(items.map(\.id), (1...5).map { "card-card\($0)-\($0 - 1)" })
     }
 
     // Quiz lands right after the 10th and 20th card (QUIZ_EVERY = 10).
@@ -72,8 +72,8 @@ final class FeedItemInterleaveTests: XCTestCase {
         let quizIndices = items.indices.filter { if case .quiz = items[$0] { return true }; return false }
         XCTAssertEqual(quizIndices.count, 2)
         // 10 cards + 1 quiz precede the first quiz slot -> index 10 (0-based).
-        XCTAssertEqual(items[quizIndices[0] - 1].id, "card-card10")
-        XCTAssertEqual(items[quizIndices[1] - 1].id, "card-card20")
+        XCTAssertEqual(items[quizIndices[0] - 1].id, "card-card10-9")
+        XCTAssertEqual(items[quizIndices[1] - 1].id, "card-card20-19")
     }
 
     // Guess lands after card 1 and 13 (GUESS_EVERY = 12, GUESS_OFFSET = 1).
@@ -83,8 +83,8 @@ final class FeedItemInterleaveTests: XCTestCase {
         )
         let guessIndices = items.indices.filter { if case .guess = items[$0] { return true }; return false }
         XCTAssertEqual(guessIndices.count, 2)
-        XCTAssertEqual(items[guessIndices[0] - 1].id, "card-card1")
-        XCTAssertEqual(items[guessIndices[1] - 1].id, "card-card13")
+        XCTAssertEqual(items[guessIndices[0] - 1].id, "card-card1-0")
+        XCTAssertEqual(items[guessIndices[1] - 1].id, "card-card13-12")
     }
 
     // Misconception after card 2 and 12 (MISCONCEPTION_EVERY = 10, OFFSET = 2).
@@ -94,8 +94,8 @@ final class FeedItemInterleaveTests: XCTestCase {
         )
         let miscIndices = items.indices.filter { if case .misconception = items[$0] { return true }; return false }
         XCTAssertEqual(miscIndices.count, 2)
-        XCTAssertEqual(items[miscIndices[0] - 1].id, "card-card2")
-        XCTAssertEqual(items[miscIndices[1] - 1].id, "card-card12")
+        XCTAssertEqual(items[miscIndices[0] - 1].id, "card-card2-1")
+        XCTAssertEqual(items[miscIndices[1] - 1].id, "card-card12-11")
     }
 
     // Explain after card 3 and 15 (EXPLAIN_EVERY = 12, OFFSET = 3).
@@ -105,8 +105,8 @@ final class FeedItemInterleaveTests: XCTestCase {
         )
         let explainIndices = items.indices.filter { if case .explain = items[$0] { return true }; return false }
         XCTAssertEqual(explainIndices.count, 2)
-        XCTAssertEqual(items[explainIndices[0] - 1].id, "card-card3")
-        XCTAssertEqual(items[explainIndices[1] - 1].id, "card-card15")
+        XCTAssertEqual(items[explainIndices[0] - 1].id, "card-card3-2")
+        XCTAssertEqual(items[explainIndices[1] - 1].id, "card-card15-14")
     }
 
     // At card 12, only misconception fires — guess's next slot is 13, not
@@ -122,8 +122,8 @@ final class FeedItemInterleaveTests: XCTestCase {
             explainPrompts: [],
             premium: true // isolates interleave-offset logic from ad slots, covered separately below
         )
-        let card12Index = items.firstIndex { $0.id == "card-card12" }!
-        let card13Index = items.firstIndex { $0.id == "card-card13" }!
+        let card12Index = items.firstIndex { $0.id == "card-card12-11" }!
+        let card13Index = items.firstIndex { $0.id == "card-card13-12" }!
         // Exactly one special item between card12 and card13 (the
         // misconception), and it's the misconception, not a guess.
         XCTAssertEqual(card13Index - card12Index, 2)
@@ -156,11 +156,11 @@ final class FeedItemInterleaveTests: XCTestCase {
         XCTAssertEqual(
             items.map(\.id),
             [
-                "card-card1", "card-card2",
-                "reviewQuiz-review1", "card-card3",
-                "card-card4", "card-card5",
-                "reviewQuiz-review2", "card-card6",
-                "card-card7", "card-card8", "card-card9",
+                "card-card1-0", "card-card2-1",
+                "reviewQuiz-review1", "card-card3-2",
+                "card-card4-3", "card-card5-4",
+                "reviewQuiz-review2", "card-card6-5",
+                "card-card7-6", "card-card8-7", "card-card9-8",
             ]
         )
     }
@@ -190,7 +190,7 @@ final class FeedItemInterleaveTests: XCTestCase {
 
         for item in items {
             switch item {
-            case .card(let c):
+            case .card(let c, _):
                 XCTAssertEqual(item.cardIdForReadTracking, c.id)
             default:
                 XCTAssertNil(item.cardIdForReadTracking, "\(item) must not be read-trackable")
@@ -207,8 +207,8 @@ final class FeedItemInterleaveTests: XCTestCase {
         )
         let adIndices = items.indices.filter { if case .ad = items[$0] { return true }; return false }
         XCTAssertEqual(adIndices.count, 2)
-        XCTAssertEqual(items[adIndices[0] - 1].id, "card-card6")
-        XCTAssertEqual(items[adIndices[1] - 1].id, "card-card12")
+        XCTAssertEqual(items[adIndices[0] - 1].id, "card-card6-5")
+        XCTAssertEqual(items[adIndices[1] - 1].id, "card-card12-11")
     }
 
     // Never pushed at all for premium users — no dead ad slide in a paying
@@ -219,5 +219,22 @@ final class FeedItemInterleaveTests: XCTestCase {
             premium: true
         )
         XCTAssertFalse(items.contains { if case .ad = $0 { return true }; return false })
+    }
+
+    // Once a session runs out of unseen content, FeedViewModel starts
+    // recirculating previously-seen cards (allowRepeats) so the feed can
+    // scroll for hours rather than dead-ending — meaning the exact same
+    // underlying card.id can legitimately appear twice in one accumulated
+    // `cards` pool. Without the `occurrence` disambiguator, both would
+    // produce the same FeedItem.id, breaking SwiftUI's ForEach/
+    // .scrollPosition(id:) uniqueness requirement.
+    func testRepeatedCardsProduceUniqueIds() {
+        let card = makeCards(1)[0]
+        let items = FeedViewModel.buildItems(
+            cards: [card, card], quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true
+        )
+        XCTAssertEqual(items.map(\.id), ["card-card1-0", "card-card1-1"])
+        XCTAssertEqual(Set(items.map(\.id)).count, items.count)
     }
 }

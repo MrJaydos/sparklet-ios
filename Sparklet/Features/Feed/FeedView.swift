@@ -68,6 +68,10 @@ struct FeedView: View {
                 }
                 .scrollTargetLayout()
             }
+            .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
+            // end the user can see coming — wrong signal for a feed
+            // designed to keep loading indefinitely (see FeedViewModel's
+            // allowRepeats-based pagination).
             .scrollContentBackground(.hidden)
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $visibleCardId)
@@ -191,7 +195,7 @@ struct FeedView: View {
     @ViewBuilder
     private func itemView(_ item: FeedItem) -> some View {
         switch item {
-        case .card(let card):
+        case .card(let card, _):
             CardView(card: card)
         case .quiz(let quiz):
             QuizCardView(
