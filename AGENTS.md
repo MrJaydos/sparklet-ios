@@ -639,6 +639,67 @@ surfaced client-side:**
   card variant server-side (`generateJSON`) if none is cached yet, so a
   tap can have real latency/cost the other additions don't.
 
+## Ads (scoped 2026-07-29, not built)
+
+Flagged by the user: the web free tier shows ads; iOS doesn't have any ad
+code at all. Confirmed via search — zero ad-related references anywhere in
+the `Sparklet` target.
+
+**Not a port — a different product.** The web uses **Google AdSense**
+(`src/components/feed/AdSlide.tsx` + `AdsenseScript.tsx`, `sparklet` repo),
+which is web-only JavaScript (`adsbygoogle`) and cannot run in a native
+app at all. The iOS equivalent is **Google AdMob** — a separate Google
+product needing its own app registration in the AdMob console (a new
+account-setup dependency, same shape as this session's App Store Connect
+gap for StoreKit), not reusable `NEXT_PUBLIC_ADSENSE_CLIENT_ID`/`_SLOT_ID`
+values. Whether ads are even live on production web right now (i.e.
+whether those env vars are actually set on the deployed backend, versus
+still dormant like Stripe was before `isBillingEnabled()`) is unconfirmed
+from this repo alone — worth checking before treating this as urgent.
+
+**Placement logic to port** (`Feed.tsx`, lines ~51/713/943): a `kind: "ad"`
+slide inserted every 6th card (`AD_EVERY = 6`), but — like the web's own
+comment says — "never pushed at all for premium users, not just hidden, so
+there's no dead ad slide in a paying user's scroll." This is the exact same
+shape as `FeedViewModel.buildItems`'s existing quiz/guess/misconception/
+explain interleave (`quizEvery`/`guessEvery`/etc.), so wiring a new `.ad`
+`FeedItem` case in there and gating it on `!purchaseManager.premium` is
+mechanical, low-risk work reusing an established pattern — the actual new
+work is entirely the ad SDK integration, not the interleave.
+
+**What the SDK integration actually needs:**
+- **First third-party dependency this app would have** — everything today
+  is first-party Swift, no CocoaPods/SPM packages at all. `Google-Mobile-
+  Ads-SDK` is available via SPM (XcodeGen supports remote `packages:` in
+  `project.yml` — confirmed via its own changelog, not yet used here).
+- `GADApplicationIdentifier` in `Info.plist` (from the AdMob console, format
+  `ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY`) plus a long list of
+  `SKAdNetworkIdentifier` entries Google publishes for iOS ad attribution.
+- Apple's App Tracking Transparency prompt if personalized ads are used —
+  Google's separate UMP (User Messaging Platform) SDK handles the
+  ATT/GDPR/CCPA consent flow correctly; skipping it isn't just a UX gap; a
+  banner/native ad SDK without proper consent handling risks App Store
+  rejection.
+- A format decision: the web's `AdSlide` is a full-height immersive slide,
+  not a small banner strip. The closest AdMob match is a **Native Advanced
+  Ad** rendered in a custom SwiftUI view matching that shape — more
+  integration work than a simple banner, but the honest equivalent of what
+  the web actually shows. A plain banner centered in a full-height
+  "Sponsored" slide is the pragmatic middle ground if less parity is fine.
+- **Good news, unlike StoreKit's testing story**: Google publishes public
+  test ad unit IDs that render real (test) creatives with no live AdMob
+  account needed — this can likely be built AND verified rendering actual
+  ads in the simulator without waiting on the user to set up a real AdMob
+  app first, unlike the App Store Connect blocker StoreKit hit.
+
+**Not scoped here, but adjacent**: `Feed.tsx` also interleaves other
+non-card slide kinds this iOS client doesn't have at all yet — `checkin`
+(session recap + share CTA), `invite` (a mid-feed prompt distinct from the
+`ProfileView` invite row already built), and `goalReached` (a celebration
+slide, ties to the confetti/celebration gap already noted elsewhere in this
+doc). Worth their own scoping pass if/when raised, not assumed in-scope for
+"ads."
+
 ## Commands
 
 No `.xcodeproj` is committed — it's generated from `project.yml` via
