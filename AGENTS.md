@@ -532,6 +532,58 @@ StoreKit 2 implementation, was chosen over shipping without a purchase
 path. See Status above for what's built vs. still needing manual App
 Store Connect setup + real-Xcode verification.
 
+## Feed/header parity gaps within already-built screens (scoped 2026-07-29)
+
+Flagged by the user: `FeedView`/`CardView`/`StatsHeaderView` exist, but
+don't match the web's `Feed.tsx`/`LearnCard.tsx`/`AppHeader.tsx` feature for
+feature. Two categories, split by how much backend work each needs —
+`FeedCard` (`Models/FeedCard.swift`) already carries `score`/`myVote`/
+`saved`/`commentCount`/`depthLevel`/`related` on every card from `GET /api/
+feed`, none of it rendered by `CardView` today.
+
+**Small additions — no new backend route needed, existing data just isn't
+surfaced client-side:**
+
+- **Streak/XP header dropdowns**: web's `StreakBadge.tsx`/`XpRing.tsx`
+  (`sparklet` repo, `src/components/feed/`) make the flame/star in
+  `AppHeader.tsx` tappable, opening a popover with streak/longest-streak/
+  freezes-available (flame) or a progress bar + a hardcoded XP-source
+  breakdown (star) — no API call of their own, just `ProfileResponse`
+  fields (`currentStreak`, `longestStreak`, `freezesAvailable`, `xpToday`,
+  `xpGoal`) already fetched and modeled in iOS. `StatsHeaderView`'s flame/
+  XP `Label`s aren't even tappable today.
+- **Vote (▲▼)**: `POST /api/cards/[id]/vote` (body `{ value: -1|0|1 }` →
+  `{ ok, score, myVote }`, `sparklet` repo). `FeedCard.score`/`.myVote`
+  already modeled client-side.
+- **Save/bookmark**: `POST /api/cards/[id]/save` (body `{ saved: boolean
+  }` → `{ ok, saved }`). `FeedCard.saved` already modeled.
+- **Share**: no backend call on web either — `navigator.share`/clipboard
+  copy of the card's URL. iOS equivalent is a native `ShareLink`, same
+  pattern as `ProfileView`'s invite row.
+- **Related cards flyout**: `FeedCard.related` already arrives with the
+  feed payload — just an unrendered list, no new fetch needed.
+
+**New features — need new networking + nontrivial sub-UI:**
+
+- **Comments**: `GET/POST /api/cards/[id]/comments` (`sparklet` repo) — a
+  full thread view + composer (web: `CommentsSheet.tsx`), matching
+  `FeedCard.commentCount`. Posting notifies other thread participants
+  (already-built `NotificationsView` would need no changes to receive
+  these, since it already renders generic `NotificationItem`s). Per-comment
+  report action shares the Report sub-feature below.
+- **Report**: `POST /api/report` (body `{ cardId?, commentId?, reason:
+  INCORRECT|INAPPROPRIATE|SPAM|OTHER, detail? }`) — a reason-picker sheet
+  shared by cards and comments (web: `ReportSheet.tsx`). Auto-hides content
+  after 5 distinct reporters server-side, nothing the client needs to
+  replicate.
+- **Reading depth switcher (SIMPLE/STANDARD/DEEP/EXTRA_DEEP)**:
+  `POST /api/cards/[id]/depth` (body `{ level }` → `{ card: { id, title,
+  body, depthLevel }, generated }`, `sparklet` repo). More than a UI gap:
+  DEEP/EXTRA_DEEP are premium-gated (402 when not subscribed — ties into
+  this session's new StoreKit `premium` flag) and lazily AI-generate a new
+  card variant server-side (`generateJSON`) if none is cached yet, so a
+  tap can have real latency/cost the other additions don't.
+
 ## Commands
 
 No `.xcodeproj` is committed — it's generated from `project.yml` via
