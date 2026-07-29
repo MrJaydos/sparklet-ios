@@ -16,11 +16,15 @@ struct FeedView: View {
     @StateObject private var notificationsViewModel: NotificationsViewModel
     @StateObject private var friendsViewModel: FriendsViewModel
     @StateObject private var onboardingViewModel: OnboardingViewModel
+    @StateObject private var leaderboardViewModel: LeaderboardViewModel
+    @StateObject private var profileViewModel: ProfileViewModel
     @State private var visibleCardId: String?
     @State private var isRefreshing = false
     @State private var showingNotifications = false
     @State private var showingFriends = false
     @State private var showingOnboarding = false
+    @State private var showingLeaderboard = false
+    @State private var showingProfile = false
 
     init(authSession: AuthSession) {
         _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession))
@@ -28,6 +32,8 @@ struct FeedView: View {
         _notificationsViewModel = StateObject(wrappedValue: NotificationsViewModel(authSession: authSession))
         _friendsViewModel = StateObject(wrappedValue: FriendsViewModel(authSession: authSession))
         _onboardingViewModel = StateObject(wrappedValue: OnboardingViewModel(authSession: authSession))
+        _leaderboardViewModel = StateObject(wrappedValue: LeaderboardViewModel(authSession: authSession))
+        _profileViewModel = StateObject(wrappedValue: ProfileViewModel(authSession: authSession))
     }
 
     var body: some View {
@@ -38,7 +44,9 @@ struct FeedView: View {
                 onRefresh: { Task { await refresh() } },
                 unreadNotifications: notificationsViewModel.unreadCount,
                 onOpenNotifications: { showingNotifications = true },
-                onOpenFriends: { showingFriends = true }
+                onOpenFriends: { showingFriends = true },
+                onOpenLeaderboard: { showingLeaderboard = true },
+                onOpenProfile: { showingProfile = true }
             )
             .padding(.vertical, 8)
 
@@ -90,6 +98,12 @@ struct FeedView: View {
         }
         .sheet(isPresented: $showingFriends) {
             FriendsView(viewModel: friendsViewModel)
+        }
+        .sheet(isPresented: $showingLeaderboard) {
+            LeaderboardView(viewModel: leaderboardViewModel)
+        }
+        .sheet(isPresented: $showingProfile) {
+            ProfileView(viewModel: profileViewModel)
         }
         .fullScreenCover(isPresented: $showingOnboarding) {
             OnboardingView(viewModel: onboardingViewModel, onComplete: { showingOnboarding = false })

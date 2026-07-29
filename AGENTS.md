@@ -7,6 +7,56 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Leaderboard and Profile screens built and verified live 2026-07-29** —
+the fourth and fifth Tier 1 screens, closing out Tier 1 entirely (Upgrade/
+billing is a separate product decision, not scoped here — see "Needs a
+decision before any code" below).
+
+- **Leaderboard**: new `GET /api/leaderboard?board=today|week|all|friends`
+  (`sparklet` repo, deployed, `2201fc8`) ports the ranking logic straight
+  out of `src/app/leaderboard/page.tsx` — that page had no API route at
+  all, just direct Prisma queries. One route with a `board` param rather
+  than four, since all four boards return the same `{ rows, me }` shape.
+  Echoes the caller's own `viewerId` so the client can highlight its own
+  row without a fragile name-matching heuristic. `LeaderboardView`
+  (sheet, `trophy.fill` button in `StatsHeaderView`) mirrors the web's
+  tab switcher + ranked list + medal emoji for top 3. Verified live:
+  "Today" board rendered the real signed-in account at rank 1 with 77 XP,
+  correctly highlighted and tagged "you". Tab-switching wasn't clicked
+  through (see the note on UI automation below) but is a one-line `board`
+  reassignment triggering the same `load()` already proven to work.
+- **Profile**: new `GET /api/profile/details` (`sparklet` repo, deployed,
+  `4c7e3c1`) — badges (`computeBadges`), viewing history, notebook (saved
+  cards), and top-categories breakdown, everything the web profile page
+  shows beyond the xp/streak numbers already in `GET /api/profile`. Kept
+  as its own route rather than folded into `GET /api/profile`, since that
+  one is polled on every feed load and this data is only needed when the
+  Profile screen itself opens; friends/friendCode are deliberately not
+  duplicated (`GET /api/friends` already covers that). `ProfileView`
+  (sheet, `person.crop.circle` button in `StatsHeaderView`) has an
+  editable display name (reuses `ProfileAPI.updateName`, first wired for
+  Onboarding), 4 stat tiles, a badges grid, a wrapping "top topics" chip
+  row (`FlowLayout`, a small custom `Layout` — SwiftUI has no flex-wrap
+  equivalent), notebook, and history. Verified live against the real
+  signed-in account: 651 cards learned, 1320 lifetime XP, badges computed
+  correctly (earned vs. not, "maxed" for `Cartographer`), top topics
+  wrapped across rows with per-category colors. Notebook/history sections
+  weren't visually scrolled to, but `ProfileDetailsResponse` decodes as
+  one atomic `Decodable` struct — reaching the badges/topics sections
+  without a decode error confirms the whole response, including those two
+  arrays, decoded successfully.
+- `StatsHeaderView`'s icon row is now 5 buttons (profile, leaderboard,
+  friends, bell, refresh) plus the streak/XP labels — confirmed it still
+  fits without overflow on an iPhone 17 Pro-class width.
+- **UI automation note**: this and every other screen this session were
+  verified by temporarily hardcoding a `@State` default to `true`/a
+  specific step, rebuilding, screenshotting, then reverting — not by
+  tapping through the real button/gesture path. The sandboxed session has
+  no Accessibility permission for `System Events`, so simulator taps
+  can't be scripted here. A future pass with that permission (or `idb`)
+  should click through the untested interactions called out above, plus
+  Friends' accept/decline/cancel/remove and Onboarding's actual submit.
+
 **Onboarding screen built and verified live 2026-07-29** — the third Tier 1
 screen. Two backend additions (`sparklet` repo, committed and deployed,
 `f101676`): `GET /api/categories` (the picker grid's data — previously only
@@ -285,31 +335,17 @@ UI that matches them rather than fights them:
 
 ## Screens not yet built (scoped 2026-07-29)
 
-The app is currently five screens — `LoginView`, `FeedView`,
-`NotificationsView`, `FriendsView`, and `OnboardingView`. Everything else
-the web app has is missing. Scoped by tier, based on a survey of the web
-app's pages and API routes (`sparklet` repo):
+The app is currently seven screens — `LoginView`, `FeedView`,
+`NotificationsView`, `FriendsView`, `OnboardingView`, `LeaderboardView`, and
+`ProfileView`. Everything else the web app has is missing. Scoped by tier,
+based on a survey of the web app's pages and API routes (`sparklet` repo):
 
 **Tier 1 — real gaps for a shipped app, each independently buildable:**
-
-- ~~**Notifications**~~ **Built and verified live 2026-07-29** — see Status
-  above.
-- ~~**Friends**~~ **Built and verified live 2026-07-29** — see Status above.
-- ~~**Onboarding**~~ **Built and verified live 2026-07-29** — see Status
-  above.
-- **Leaderboard**: no API route exists yet — the web page does the
-  today/7-day/all-time/friends ranking via direct Prisma queries
-  (`src/app/leaderboard/page.tsx`). Needs a new route, e.g.
-  `GET /api/leaderboard?board=today|week|all|friends` — keep the rank
-  computation server-side, don't reimplement it in Swift. UI itself is a
-  simple tab switcher + ranked list.
-- **Profile**: `GET/PATCH /api/profile` exists but is thin (xp/streak/name
-  only) — the web page's history, saved cards/notebook, badges
-  (`src/lib/badges.ts`), category breakdown, and due-reviews count are all
-  server-side-only right now and need new routes. UI itself is simple
-  (header, stat tiles, scrollable lists). Don't port `PushToggle` — that's
-  web-push-specific; iOS needs APNs instead (deferred per "Decisions made"
-  above until `PushSubscription` needs its `platform` column anyway).
+All done as of 2026-07-29 — see Status above for Leaderboard/Profile,
+Onboarding/Friends/Notifications above that. `PushToggle` was deliberately
+not ported into `ProfileView` — that's web-push-specific; iOS needs APNs
+instead (deferred per "Decisions made" above until `PushSubscription`
+needs its `platform` column anyway).
 
 **Tier 2 — real feature, deliberately not next:**
 

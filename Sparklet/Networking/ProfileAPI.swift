@@ -17,6 +17,14 @@ struct ProfileAPI {
         )
     }
 
+    // Separate route from GET /api/profile — that one is polled on every
+    // feed load, this data (badges/history/notebook/top categories) is only
+    // needed when the Profile screen itself opens. See the route's own
+    // comment (sparklet/src/app/api/profile/details/route.ts).
+    func fetchDetails(token: String?) async throws -> ProfileDetailsResponse {
+        try await client.get("api/profile/details", token: token)
+    }
+
     private struct UpdateNameRequest: Encodable { let name: String }
     private struct UpdateNameResponse: Decodable { let ok: Bool; let name: String? }
 

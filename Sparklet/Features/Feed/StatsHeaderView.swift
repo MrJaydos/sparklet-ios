@@ -12,15 +12,19 @@ struct StatsHeaderView: View {
     let unreadNotifications: Int
     let onOpenNotifications: () -> Void
     let onOpenFriends: () -> Void
+    let onOpenLeaderboard: () -> Void
+    let onOpenProfile: () -> Void
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             if let profile {
                 Label("\(profile.currentStreak)", systemImage: "flame.fill")
                     .foregroundStyle(.orange)
                 Label("\(profile.xpToday)/\(profile.xpGoal) XP", systemImage: "star.fill")
                     .foregroundStyle(.yellow)
                 Spacer()
+                profileButton
+                leaderboardButton
                 friendsButton
                 notificationsButton
                 refreshButton
@@ -57,6 +61,20 @@ struct StatsHeaderView: View {
     private var friendsButton: some View {
         Button(action: onOpenFriends) {
             Image(systemName: "person.2.fill")
+        }
+        .foregroundStyle(Theme.textTertiary)
+    }
+
+    private var leaderboardButton: some View {
+        Button(action: onOpenLeaderboard) {
+            Image(systemName: "trophy.fill")
+        }
+        .foregroundStyle(Theme.textTertiary)
+    }
+
+    private var profileButton: some View {
+        Button(action: onOpenProfile) {
+            Image(systemName: "person.crop.circle")
         }
         .foregroundStyle(Theme.textTertiary)
     }
