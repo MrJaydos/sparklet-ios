@@ -15,9 +15,15 @@ struct TopDropdown<DropdownContent: View>: ViewModifier {
             .overlay(alignment: .top) {
                 if isPresented {
                     ZStack(alignment: .top) {
+                        // Fades independently of the card below — giving
+                        // both the same slide transition (an earlier pass)
+                        // made the backdrop itself appear to slide down,
+                        // which read as static/mechanical rather than a
+                        // dim fading in behind a dropping card.
                         Color.black.opacity(0.6)
                             .ignoresSafeArea()
                             .onTapGesture { close() }
+                            .transition(.opacity)
 
                         dropdownContent()
                             .background(Theme.background)
@@ -26,11 +32,8 @@ struct TopDropdown<DropdownContent: View>: ViewModifier {
                                 UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24)
                                     .strokeBorder(Theme.border)
                             )
+                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
                     .zIndex(1)
                 }
             }
