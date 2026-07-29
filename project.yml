@@ -51,6 +51,23 @@ targets:
           NSExceptionDomains:
             localhost:
               NSExceptionAllowsInsecureHTTPLoads: true
+    # Lets a tapped https://sparkletapp.com/invite/<id> link open this app
+    # directly (NSUserActivityTypeBrowsingWeb, handled in SparkletApp.swift)
+    # instead of just Safari. The entitlement alone isn't enough to activate
+    # it — Apple also verifies a signed apple-app-site-association file at
+    # https://sparkletapp.com/.well-known/apple-app-site-association whose
+    # appID is "<TEAM_ID>.com.sparklet.ios". Not added to the backend yet:
+    # there's no real Apple Developer Team ID configured in this project
+    # (see DEVELOPMENT_TEAM above), and publishing an AASA with a made-up
+    # team ID to production would just be silently wrong. Until then,
+    # sharing still works via the plain https:// link (opens in Safari,
+    # same as today) — this entitlement only upgrades that once a team ID
+    # exists.
+    entitlements:
+      path: Sparklet/Sparklet.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - applinks:sparkletapp.com
     scheme:
       testTargets:
         - SparkletTests

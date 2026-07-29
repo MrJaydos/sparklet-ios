@@ -11,6 +11,7 @@ import SwiftUI
 // tracking the single visible card keeps the client honest about what it's
 // claiming, not just about what dwellMs it sends.
 struct FeedView: View {
+    let authSession: AuthSession
     @StateObject private var viewModel: FeedViewModel
     @StateObject private var statsViewModel: StatsHeaderViewModel
     @StateObject private var notificationsViewModel: NotificationsViewModel
@@ -27,6 +28,7 @@ struct FeedView: View {
     @State private var showingProfile = false
 
     init(authSession: AuthSession) {
+        self.authSession = authSession
         _viewModel = StateObject(wrappedValue: FeedViewModel(authSession: authSession))
         _statsViewModel = StateObject(wrappedValue: StatsHeaderViewModel(authSession: authSession))
         _notificationsViewModel = StateObject(wrappedValue: NotificationsViewModel(authSession: authSession))
@@ -103,7 +105,7 @@ struct FeedView: View {
             LeaderboardView(viewModel: leaderboardViewModel)
         }
         .sheet(isPresented: $showingProfile) {
-            ProfileView(viewModel: profileViewModel)
+            ProfileView(viewModel: profileViewModel, authSession: authSession)
         }
         .fullScreenCover(isPresented: $showingOnboarding) {
             OnboardingView(viewModel: onboardingViewModel, onComplete: { showingOnboarding = false })

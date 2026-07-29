@@ -6,6 +6,7 @@ import Foundation
 // (saved cards), top categories, and due-reviews count. Friends/friendCode
 // are deliberately not duplicated here — see FriendsResponse.
 struct ProfileDetailsResponse: Decodable {
+    let id: String
     let name: String
     let email: String
     let xp: Int

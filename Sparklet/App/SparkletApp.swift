@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct SparkletApp: App {
@@ -19,6 +20,7 @@ struct SparkletApp: App {
 
 private struct RootView: View {
     @EnvironmentObject private var authSession: AuthSession
+    @State private var pendingInviteRefId: String?
 
     var body: some View {
         ZStack {
@@ -29,5 +31,37 @@ private struct RootView: View {
                 LoginView()
             }
         }
+        // Handles a tapped https://sparkletapp.com/invite/<id> link once
+        // Universal Links are fully activated (see project.yml's
+        // entitlements comment for what's still missing there) — until
+        // then this simply never fires, and the link opens in Safari like
+        // today. Also handles the same path via a direct onOpenURL, which
+        // is how `xcrun simctl openurl` delivers it for local testing
+        // without needing a real apple-app-site-association.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL {
+                pendingInviteRefId = InviteLink.refId(from: url)
+            }
+        }
+        .onOpenURL { url in
+            if let refId = InviteLink.refId(from: url) {
+                pendingInviteRefId = refId
+            }
+        }
+        .fullScreenCover(item: Binding(
+            get: { pendingInviteRefId.map { InviteRoute(refId: $0) } },
+            set: { pendingInviteRefId = $0?.refId }
+        )) { route in
+            InviteView(
+                viewModel: InviteViewModel(authSession: authSession),
+                refId: route.refId,
+                onContinue: { pendingInviteRefId = nil }
+            )
+        }
     }
+}
+
+private struct InviteRoute: Identifiable {
+    let refId: String
+    var id: String { refId }
 }

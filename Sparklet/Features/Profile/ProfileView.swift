@@ -2,10 +2,19 @@ import SwiftUI
 
 struct ProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
+    let authSession: AuthSession
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var mapViewModel: KnowledgeMapViewModel
+    @State private var showingMap = false
 
     private static let statColumns = [GridItem(.flexible()), GridItem(.flexible())]
     private static let badgeColumns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+
+    init(viewModel: ProfileViewModel, authSession: AuthSession) {
+        self.viewModel = viewModel
+        self.authSession = authSession
+        _mapViewModel = StateObject(wrappedValue: KnowledgeMapViewModel(authSession: authSession))
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,6 +28,8 @@ struct ProfileView: View {
                         header(details)
                         statsGrid(details)
                         freezeAndReviewsCaption(details)
+                        inviteRow(details)
+                        knowledgeMapRow(details)
                         badgesSection(details)
                         topTopicsSection(details)
                         notebookSection(details)
@@ -40,9 +51,36 @@ struct ProfileView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingMap) {
+            KnowledgeMapView(viewModel: mapViewModel)
+        }
         .task {
             await viewModel.loadIfNeeded()
         }
+    }
+
+    private func knowledgeMapRow(_ details: ProfileDetailsResponse) -> some View {
+        Button {
+            showingMap = true
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("🗺️ Your knowledge map")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("See \(details.totalViewed) learned facts as a growing constellation")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding()
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+        }
+        .buttonStyle(.plain)
     }
 
     private func header(_ details: ProfileDetailsResponse) -> some View {
@@ -109,6 +147,29 @@ struct ProfileView: View {
         return Text(freezeText + reviewsText)
             .font(.caption)
             .foregroundStyle(Theme.textTertiary)
+    }
+
+    // Mirrors the web hamburger menu's "Invite friends" share action
+    // (src/components/feed/MenuSheet.tsx) — a friend who signs up through
+    // this link auto-friends the sharer and, on their first-ever session,
+    // grants the sharer a bonus streak freeze (POST /api/invite/[refId]/
+    // accept, InviteView).
+    private func inviteRow(_ details: ProfileDetailsResponse) -> some View {
+        let url = AppConfig.apiBaseURL.appendingPathComponent("invite/\(details.id)")
+        return ShareLink(item: url, subject: Text("Join me on Sparklet"), message: Text("Learn something real, one swipe at a time.")) {
+            HStack {
+                Label("Invite friends", systemImage: "gift.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding()
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+        }
+        .buttonStyle(.plain)
     }
 
     private func badgesSection(_ details: ProfileDetailsResponse) -> some View {

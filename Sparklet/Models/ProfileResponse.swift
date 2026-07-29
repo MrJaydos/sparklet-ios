@@ -7,6 +7,7 @@ import Foundation
 // AGENTS.md): `xpToday`/`xpGoal` answer "did I hit my XP today", `cardsToday`
 // answers "did I hit my count today".
 struct ProfileResponse: Codable {
+    let id: String
     let xp: Int
     let xpToday: Int
     let xpGoal: Int

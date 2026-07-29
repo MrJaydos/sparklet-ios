@@ -41,6 +41,7 @@ final class StatsHeaderViewModel: ObservableObject {
         // lifetime sum — only `today`/`goal` are meaningful there. Falling
         // back to the last known `xp` avoids clobbering it to zero.
         profile = ProfileResponse(
+            id: current.id,
             xp: xp.awarded > 0 ? xp.total : current.xp,
             xpToday: xp.today,
             xpGoal: xp.goal,

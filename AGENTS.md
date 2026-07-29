@@ -7,6 +7,69 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Tier 2 (Knowledge map, Invite) built and verified live 2026-07-29** —
+closes out both items scoped as "own project, not a quick add" below.
+
+- **Knowledge map**: new `GET /api/map` (`sparklet` repo, deployed) ports
+  `getKnowledgeMap()` + the 220-iteration `forceLayout()` settle out of
+  `src/app/map/page.tsx` — same division of work as the web, where only the
+  *live* wake-on-touch physics is a client concern on top of the server's
+  starting positions. `KnowledgeMapViewModel.step()` ports `MapView.tsx`'s
+  `step()` line-by-line (same `REPEL`/`SPRING`/`DAMPING` constants);
+  `KnowledgeMapView` renders it with a `Canvas` inside a continuously-
+  ticking `TimelineView(.animation)`, with `DragGesture`/
+  `MagnificationGesture` for pan/zoom/drag-to-bump/tap-to-preview,
+  reachable from a new "🗺️ Your knowledge map" row in `ProfileView`
+  (matching the web's placement). Deliberate simplification from the web:
+  always steps every frame while the screen is open rather than porting
+  the JS `requestAnimationFrame` sleep-when-settled optimization — at
+  ~20k pairwise comparisons/frame that's trivial for a native CPU on a
+  screen a user has open for well under a minute, and porting the sleep
+  state machine safely would mean mutating an `@Published` flag from
+  inside `TimelineView`'s content closure, a footgun not worth it here
+  (see the long comment on `KnowledgeMapViewModel.sim`). Verified live
+  against the real signed-in account: 654 facts learned, a real ~200-node
+  graph rendered with correctly colored/degree-sized dots and edges, and
+  the physics settled into a different-but-still-coherent, bounded layout
+  after several seconds (confirms stability — no divergence, no nodes
+  flying off-canvas). Pan/zoom/drag/tap gestures weren't clicked through
+  (see the UI-automation note below) — they're a direct port of
+  `MapView.tsx`'s pointer-event math (hit-testing, screen↔user-space
+  conversion), not new logic invented for this pass.
+- **Invite**: new `POST /api/invite/[refId]/accept` (`sparklet` repo,
+  deployed) ports the auto-friend + streak-freeze reward logic out of
+  `src/app/invite/[refId]/page.tsx` — a native client is always already
+  signed in by the time it can reach this screen, so there's no
+  equivalent to the web's login-redirect gate to port. `GET /api/profile`
+  and `GET /api/profile/details` now both echo the caller's own `id`, so
+  the client can build `https://sparkletapp.com/invite/{id}` without a
+  dedicated endpoint. Outbound: a `ShareLink`-based "Invite friends" row
+  in `ProfileView` (native share sheet, mirrors the web hamburger menu's
+  same action). Inbound: `RootView` (`SparkletApp.swift`) handles both
+  `onContinueUserActivity(.browsingWeb)` (true Universal Links) and
+  `onOpenURL` (custom-scheme/local testing) via a small testable
+  `InviteLink.refId(from:)` parser (`InviteLinkTests`, 3 cases), showing
+  `InviteView` as a `fullScreenCover`. **Universal Links aren't actually
+  live yet** — `project.yml` has the `applinks:sparkletapp.com`
+  entitlement wired, but activating it needs a signed
+  `apple-app-site-association` file hosted at `sparkletapp.com/.well-
+  known/`, whose `appID` must be `"<TEAM_ID>.com.sparklet.ios"` — there's
+  no real Apple Developer Team ID in this project yet (see
+  `DEVELOPMENT_TEAM` in project.yml), and publishing a made-up one to
+  production would just be silently wrong, so that file was deliberately
+  not added. Until a real team ID exists, a shared invite link still
+  works exactly as it does today — opens in Safari, completes the same
+  auto-friend flow there. Verified live: the full accept round-trip
+  (`InviteView` → `POST /api/invite/{id}/accept` → real "invalid" response
+  → correct render) via a temporarily hardcoded refId, since the OS-level
+  Universal Link delivery itself can't be exercised without that team ID.
+- Both new screens are reachable through `ProfileView` rather than
+  `StatsHeaderView` — that row was already at 5 icons (see the Leaderboard/
+  Profile entry below) and these two are lower-frequency than
+  Friends/Notifications/Leaderboard, so they follow the web's own
+  placement (both live under the profile page there too) instead of
+  competing for header space.
+
 **Leaderboard and Profile screens built and verified live 2026-07-29** —
 the fourth and fifth Tier 1 screens, closing out Tier 1 entirely (Upgrade/
 billing is a separate product decision, not scoped here — see "Needs a
@@ -332,13 +395,39 @@ UI that matches them rather than fights them:
    faster than its snap animation could settle. Worth a light on-device
    sanity check (a few quick manual swipe-reversals) but not worth chasing
    further from this one occurrence under artificial conditions.
+7. **Invite Universal Links need a real Apple Developer Team ID.** The
+   `applinks:sparkletapp.com` entitlement is wired in `project.yml`, and
+   `RootView` already handles `onContinueUserActivity(.browsingWeb)`
+   correctly (see Status above) — but activation also requires a signed
+   `apple-app-site-association` file at `sparkletapp.com/.well-known/`
+   whose `appID` is `"<TEAM_ID>.com.sparklet.ios"`, which needs the real
+   team ID from `DEVELOPMENT_TEAM` once that's set. Until then, invite
+   links still work today, just by opening in Safari instead of the app.
+   Once a team ID exists: add that AASA route to the `sparklet` repo, set
+   `DEVELOPMENT_TEAM` in `project.yml`, and verify with a real device (the
+   simulator can't validate a genuine AASA against Apple's CDN).
+8. **UI interaction verification gap, applies to every screen built
+   2026-07-29 (Notifications through Knowledge map).** This session had no
+   Accessibility permission for `System Events`, so no simulator taps
+   could be scripted — every screen was verified by temporarily hardcoding
+   a `@State` default (or, for Invite, a refId) to force it open, rebuild,
+   screenshot, then revert, confirming data loads and renders correctly
+   against production. Actual tap/drag/gesture interactions (Friends'
+   accept/decline/cancel, Onboarding's real submit, Leaderboard's tab
+   switch, the knowledge map's pan/zoom/drag-to-bump/tap-to-preview) are
+   code-reviewed ports of already-proven web logic, not click-tested. A
+   future pass with Accessibility permission (or `idb`) should close this
+   gap across the board rather than one screen at a time.
 
 ## Screens not yet built (scoped 2026-07-29)
 
-The app is currently seven screens — `LoginView`, `FeedView`,
-`NotificationsView`, `FriendsView`, `OnboardingView`, `LeaderboardView`, and
-`ProfileView`. Everything else the web app has is missing. Scoped by tier,
-based on a survey of the web app's pages and API routes (`sparklet` repo):
+The app is currently nine screens — `LoginView`, `FeedView`,
+`NotificationsView`, `FriendsView`, `OnboardingView`, `LeaderboardView`,
+`ProfileView`, `KnowledgeMapView`, and `InviteView`. Everything the web app
+has is now built except Upgrade/billing (blocked on a product decision, see
+below) and the not-planned Admin surface. Originally scoped by tier, based
+on a survey of the web app's pages and API routes (`sparklet` repo) — kept
+below for the reasoning history even though Tiers 1 and 2 are both done:
 
 **Tier 1 — real gaps for a shipped app, each independently buildable:**
 All done as of 2026-07-29 — see Status above for Leaderboard/Profile,
@@ -347,22 +436,10 @@ not ported into `ProfileView` — that's web-push-specific; iOS needs APNs
 instead (deferred per "Decisions made" above until `PushSubscription`
 needs its `platform` column anyway).
 
-**Tier 2 — real feature, deliberately not next:**
-
-- **Knowledge map**: not a simple screen — `MapView.tsx` (461 lines) is a
-  live force-directed graph with drag physics (spring/repel/damping that
-  "wakes" on touch), pan/zoom, tap-to-preview, degree-based node sizing.
-  This is a custom-rendered physics engine, not a chart — likely a
-  SwiftUI Canvas or UIKit gesture-driven view. Also has no backing API
-  route yet (`getKnowledgeMap()` + `forceLayout()` are page-local). Scope
-  as its own project when it comes up, not a quick add.
-- **Invite**: web's `/invite/[refId]` is a full page (resolve referrer,
-  auto-create friendship, grant a streak-freeze bonus, login-gate via
-  redirect) with no API route — logic lives in the page component. iOS
-  can't render that mid-flow; needs a new `POST /api/invite/[refId]/accept`
-  endpoint, a native share sheet for the outbound side, and Universal
-  Links/associated-domains configuration for the inbound side. The
-  UI itself is trivial; the deep-link infra is the actual work.
+**Tier 2 — done as of 2026-07-29, see Status above.** Knowledge map and
+Invite were both built; Invite's inbound Universal Link delivery is the one
+piece still blocked, on a real Apple Developer Team ID rather than more
+engineering — see the Status entry for exactly what's wired vs. pending.
 
 **Not planned for mobile:**
 
