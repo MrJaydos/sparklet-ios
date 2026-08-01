@@ -7,6 +7,75 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Remaining feed slide kinds built (checkin/invite/goalReached),
+2026-08-01** — the last of `Feed.tsx`'s non-card slide kinds this client
+didn't have, closing the "Not scoped into this pass" note in the ads
+entry below. All three are client-side-only interleave slots, same shape
+as `.ad` — no server model, computed fresh in `FeedViewModel.buildItems`
+every rebuild.
+- **A real bug in `countsAsCard` found and fixed along the way**: iOS's
+  `StatsHeaderViewModel.apply` had a `countsAsCard` flag that excluded
+  quiz/guess/misconception/explain answers from bumping the local
+  `cardsToday` count — but the backend's actual `getCardsToday` (`sparklet`
+  repo, `src/lib/xp.ts`) counts every `XpEvent` row in the window
+  regardless of source ("Any new XP-awarding action implicitly becomes one
+  more 'card' toward that goal"). The flag was based on a misreading of
+  that invariant, not an intentional distinction — confirmed by reading
+  `xp.ts` directly rather than trusting the existing code comment, since
+  `goalReached` genuinely depends on `cardsToday` being accurate to fire
+  at the right moment. Removed the flag entirely (`apply` now always
+  counts an award, and returns whether that call crossed the goal) rather
+  than keep dead config every call site had to pass correctly.
+- `DailyCardGoal` (`Features/Feed/DailyCardGoal.swift`) mirrors
+  `CategorySheet.tsx`'s `sparklet.dailyGoal`/`DEFAULT_DAILY_CARD_GOAL` and
+  `Feed.tsx`'s `sparklet.goalHit` date guard. The web lets a user adjust
+  the goal via a settings sheet this client doesn't have — out of scope
+  here, so `current` always reads the same default (10) for now.
+- `FeedViewModel` gained session-recap state (`sessionViews`,
+  `sessionTopicCount`, mirroring `Feed.tsx`'s `sessionViewsRef`/
+  `sessionCategories`) plus `markSessionView`/`addSessionCategory`/
+  `markGoalReached`. `markSessionView` fires unconditional of the 4.5s
+  read-dwell gate `trackView` enforces — mirrors the web's `markViewed`,
+  a deliberately different (looser) signal than "the server counted this
+  as read."
+- `buildItems` gained `showInviteCard`/`goalReachedAfter` params:
+  `checkin` fires unconditionally every 15 cards; `invite` once at card
+  12, gated by an every-other-session `UserDefaults` counter
+  (`sparklet.inviteSessionCount`, resolved once in `FeedViewModel.init`);
+  `goalReached` at the cards-array position snapshotted the instant the
+  goal was crossed (`markGoalReached`), same "insert at the position
+  sessionViews happened to be at" approximation the web itself uses.
+  5 new interleave tests (`FeedItemInterleaveTests`) plus 3 for
+  `DailyCardGoal`'s pure UserDefaults logic — 27 total, up from 19.
+- New `RecapSlideViews.swift` (`CheckinSlideView`/`InviteSlideView`/
+  `GoalReachedSlideView`) — styled as the same boxed panel every other
+  feed slide uses (`AdSlideView`'s own precedent), not the web's plain
+  edge-to-edge section. The web's `ConfettiBurst` celebration polish
+  (`Celebration.tsx`) is still deliberately not ported, unchanged from
+  the original scoping note.
+- **Verified live against real production data** — not by scrolling
+  15+ cards deep (no tap automation in this sandbox), but by temporarily
+  lowering the interleave thresholds (`checkinEvery`/`inviteAfterCards`
+  to 3/2, forcing `showInviteCard = true`, seeding `goalReachedAfter = 4`)
+  so all three slides landed inside the very first small batch, then
+  separately seeding `visibleCardId`'s initial value to
+  `items.first { case .invite = $0 ... }` (and the `.checkin`/
+  `.goalReached` equivalents) across three separate builds — the same
+  temporarily-hardcoded-then-reverted technique used throughout this
+  project, just searching by case instead of guessing an index (a first
+  attempt hardcoded index `2`, which landed on a plain card instead — the
+  real feed's reviewQuizzes/guesses/misconceptions shift indices in ways
+  a hand-computed guess doesn't account for; searching by item kind
+  sidesteps that entirely). All three slides rendered correctly against
+  the real signed-in account: invite showed the 🎁 copy with a working
+  `ShareLink`, checkin showed "You've learned 0 things across 0 topics"
+  (correctly 0 — jumping straight to the slide skipped ever viewing a
+  real card this launch, so nothing had been counted yet), and
+  goalReached showed the account's real `cardsToday` (7) against the
+  real default goal (10). All 6 threshold/gate overrides fully reverted
+  afterward; confirmed clean with one more build showing normal first-item
+  feed behavior. All 27 `SparkletTests` pass.
+
 **Depth-preference memory built, closing "Still open" #11 (2026-08-01)** —
 ports `LearnCard.tsx`'s remembered-depth-switch behavior: a manual
 SIMPLE/DEEP/EXTRA_DEEP tap is also a preference, auto-applied to future
@@ -336,12 +405,9 @@ package is importable without its own explicit dependency entry).
   console and swap `GADApplicationIdentifier` (`Info.plist`) and
   `AdSlideView`'s test ad unit id for real ones before shipping — same
   shape as the App Store Connect follow-up StoreKit left behind.
-- **Not scoped into this pass** (unchanged from the original scoping):
-  `Feed.tsx`'s other non-card slide kinds this iOS client still doesn't
-  have — `checkin` (session recap + share CTA), `invite` (a mid-feed
-  prompt distinct from the `ProfileView` invite row already built), and
-  `goalReached` (a celebration slide, ties to the confetti/celebration gap
-  noted elsewhere in this doc).
+- ~~Not scoped into this pass: `Feed.tsx`'s other non-card slide kinds~~
+  **Built and verified live 2026-08-01** — see Status above (`checkin`,
+  `invite`, `goalReached`).
 
 **Feed/header parity gaps built and verified live 2026-07-29** — see the
 full scoping below ("Feed/header parity gaps within already-built

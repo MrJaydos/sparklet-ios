@@ -142,8 +142,12 @@ struct FeedView: View {
             // quiz/guess/misconception/explain slot earns XP through its own
             // answer endpoint instead (see FeedItem.cardIdForReadTracking).
             guard let cardId = currentItem?.cardIdForReadTracking else { return }
+            // Unconditional of the read-dwell gate below — mirrors Feed.tsx's
+            // markViewed, which counts a card toward the session recap the
+            // moment it's scrolled to, not once the server has counted a read.
+            viewModel.markSessionView(cardId: cardId)
             if let xp = await viewModel.trackView(cardId: cardId) {
-                statsViewModel.apply(xp)
+                applyXpAndCheckGoal(xp)
             }
         }
         // Deliberately a separate .task from the one above: trackView
@@ -171,6 +175,40 @@ struct FeedView: View {
     private var currentItem: FeedItem? {
         guard let visibleCardId else { return nil }
         return viewModel.items.first { $0.id == visibleCardId }
+    }
+
+    // Shared by every XP-awarding path (read-tracking above, and each
+    // quiz/guess/misconception/explain onXp closure below) — updates the
+    // header, then checks whether this specific update just crossed the
+    // daily card-count goal, triggering the one-per-day goalReached slide.
+    // Mirrors Feed.tsx's handleXp + the crossing check inside
+    // markCardCompleted, which every answer handler calls unconditionally
+    // too (see StatsHeaderViewModel.apply's comment on why quiz/guess/
+    // misconception/explain answers count toward this goal same as reads).
+    private func applyXpAndCheckGoal(_ xp: XpSummary) {
+        if statsViewModel.apply(xp), DailyCardGoal.markReachedIfNeededToday() {
+            viewModel.markGoalReached()
+        }
+    }
+
+    // "Keep going" / "Maybe later" on the checkin/invite/goalReached slides —
+    // mirrors Feed.tsx's scrollNext (a raw pixel scrollBy); SwiftUI's
+    // .scrollPosition(id:) binding needs the next item's id instead, found
+    // via its position in the already-known `items` array.
+    private func advanceToNextItem() {
+        guard let visibleCardId,
+              let index = viewModel.items.firstIndex(where: { $0.id == visibleCardId }),
+              index + 1 < viewModel.items.count
+        else { return }
+        withAnimation { self.visibleCardId = viewModel.items[index + 1].id }
+    }
+
+    // Mirrors the `inviteUrl` prop Feed.tsx receives from its server-rendered
+    // parent page — this client has no such SSR step, so it's derived here
+    // from the already-fetched profile id instead (same construction
+    // ProfileView's own invite row uses).
+    private var inviteURL: URL {
+        AppConfig.apiBaseURL.appendingPathComponent("invite/\(statsViewModel.profile?.id ?? "")")
     }
 
     // An explicit button instead of `.refreshable`: this feed pages
@@ -204,7 +242,10 @@ struct FeedView: View {
                 category: quiz.category,
                 isReview: false,
                 onSubmit: { index in await viewModel.answerQuiz(id: quiz.id, index: index) },
-                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+                onXp: { xp in
+                    viewModel.addSessionCategory(quiz.category.name)
+                    applyXpAndCheckGoal(xp)
+                }
             )
         case .reviewQuiz(let quiz):
             QuizCardView(
@@ -213,29 +254,59 @@ struct FeedView: View {
                 category: quiz.category,
                 isReview: true,
                 onSubmit: { index in await viewModel.answerReview(id: quiz.id, index: index) },
-                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+                onXp: { xp in
+                    viewModel.addSessionCategory(quiz.category.name)
+                    applyXpAndCheckGoal(xp)
+                }
             )
         case .guess(let guess):
             GuessCardView(
                 guess: guess,
                 onSubmit: { value in await viewModel.answerGuess(id: guess.id, guess: value) },
-                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+                onXp: { xp in
+                    viewModel.addSessionCategory(guess.category.name)
+                    applyXpAndCheckGoal(xp)
+                }
             )
         case .misconception(let misconception):
             MisconceptionCardView(
                 misconception: misconception,
                 onSubmit: { choice in await viewModel.answerMisconception(id: misconception.id, guess: choice) },
-                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+                onXp: { xp in
+                    viewModel.addSessionCategory(misconception.category.name)
+                    applyXpAndCheckGoal(xp)
+                }
             )
         case .explain(let prompt):
             ExplainCardView(
                 prompt: prompt,
                 onSubmit: { text in await viewModel.answerExplain(cardId: prompt.id, text: text) },
                 onSkip: { await viewModel.skipExplain(cardId: prompt.id) },
-                onXp: { xp in statsViewModel.apply(xp, countsAsCard: false) }
+                onXp: { xp in
+                    viewModel.addSessionCategory(prompt.category.name)
+                    applyXpAndCheckGoal(xp)
+                }
             )
         case .ad:
             AdSlideView()
+        case .checkin:
+            CheckinSlideView(
+                sessionViews: viewModel.sessionViews,
+                topicCount: viewModel.sessionTopicCount,
+                inviteUrl: inviteURL,
+                onContinue: advanceToNextItem
+            )
+        case .invite:
+            InviteSlideView(inviteUrl: inviteURL, onContinue: advanceToNextItem)
+        case .goalReached:
+            GoalReachedSlideView(
+                cardsToday: statsViewModel.profile?.cardsToday ?? 0,
+                dailyGoal: DailyCardGoal.current,
+                sessionViews: viewModel.sessionViews,
+                topicCount: viewModel.sessionTopicCount,
+                onContinue: advanceToNextItem,
+                onDone: { showingProfile = true }
+            )
         }
     }
 }

@@ -27,6 +27,15 @@ enum FeedItem: Identifiable, Hashable {
     // No server-side model — mirrors Feed.tsx's `{ kind: "ad", adKey }`,
     // a client-side-only slide inserted by the interleave, never fetched.
     case ad(key: Int)
+    // The remaining three are session-recap/growth slides — also no
+    // server-side model, purely client-side interleave, same as `.ad`.
+    // `afterCount` is the cards-array position it was inserted at, used
+    // only for `id` uniqueness (mirrors Feed.tsx's `{ kind: "checkin",
+    // afterCount }`) — the copy shown to the user reads live session state
+    // from FeedViewModel instead, not this frozen snapshot.
+    case checkin(afterCount: Int)
+    case invite
+    case goalReached
 
     var id: String {
         switch self {
@@ -37,6 +46,9 @@ enum FeedItem: Identifiable, Hashable {
         case .misconception(let m): return "misconception-\(m.id)"
         case .explain(let e): return "explain-\(e.id)"
         case .ad(let key): return "ad-\(key)"
+        case .checkin(let afterCount): return "checkin-\(afterCount)"
+        case .invite: return "invite"
+        case .goalReached: return "goalReached"
         }
     }
 

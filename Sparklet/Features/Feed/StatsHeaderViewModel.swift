@@ -26,16 +26,24 @@ final class StatsHeaderViewModel: ObservableObject {
     // already carries today's/lifetime totals and the streak delta.
     // `cardsToday` isn't in XpSummary, but the backend's own invariant
     // (one XpEvent row per positive award — see xp.ts) means it advances
-    // exactly when `awarded > 0` does, so it's derived rather than stale
-    // until the next full load.
+    // exactly when `awarded > 0` does, regardless of whether the award came
+    // from a card read, review recall, quiz, guess, or misconception check —
+    // getCardsToday (sparklet/src/lib/xp.ts) counts ALL of those the same
+    // way ("Any new XP-awarding action implicitly becomes one more 'card'
+    // toward that goal"). An earlier pass here had a `countsAsCard` flag
+    // that excluded quiz/guess/misconception/explain answers from bumping
+    // cardsToday — that was a misreading of the backend's actual semantics,
+    // not an intentional distinction; removed rather than kept as dead
+    // config, since every caller needed it true anyway.
     //
-    // `countsAsCard` must be false for quiz/guess/misconception/explain
-    // answers — those award XP too, but answering one isn't "reading a
-    // card," and the daily card-count goal and the XP ring are deliberately
-    // separate questions (see AGENTS.md). Only the read-tracking flow in
-    // FeedViewModel.trackView should pass true.
-    func apply(_ xp: XpSummary, countsAsCard: Bool = true) {
-        guard let current = profile else { return }
+    // Returns whether this call just crossed the daily card-count goal
+    // (previous < goal, new >= goal) — mirrors Feed.tsx's markCardCompleted
+    // edge check — so callers can trigger the goalReached feed slide.
+    @discardableResult
+    func apply(_ xp: XpSummary) -> Bool {
+        guard let current = profile else { return false }
+        let previousCardsToday = current.cardsToday
+        let nextCardsToday = previousCardsToday + (xp.awarded > 0 ? 1 : 0)
         // On the no-award path (already-completed card, rate-limited read),
         // interactions/route.ts hardcodes `total: 0` rather than the real
         // lifetime sum — only `today`/`goal` are meaningful there. Falling
@@ -45,11 +53,13 @@ final class StatsHeaderViewModel: ObservableObject {
             xp: xp.awarded > 0 ? xp.total : current.xp,
             xpToday: xp.today,
             xpGoal: xp.goal,
-            cardsToday: current.cardsToday + (countsAsCard && xp.awarded > 0 ? 1 : 0),
+            cardsToday: nextCardsToday,
             currentStreak: xp.streak?.currentStreak ?? current.currentStreak,
             longestStreak: xp.streak?.longestStreak ?? current.longestStreak,
             freezesAvailable: xp.streak?.freezesAvailable ?? current.freezesAvailable,
             needsOnboarding: current.needsOnboarding
         )
+        let goal = DailyCardGoal.current
+        return previousCardsToday < goal && nextCardsToday >= goal
     }
 }

@@ -142,7 +142,9 @@ final class FeedItemInterleaveTests: XCTestCase {
         )
         let quizIndices = items.indices.filter { if case .quiz = items[$0] { return true }; return false }
         XCTAssertEqual(quizIndices.count, 1)
-        XCTAssertEqual(items.count, 21) // 20 cards + 1 quiz, nothing more.
+        // 20 cards + 1 quiz + 1 checkin (unconditional, at card 15) —
+        // invite/goalReached default to off, so nothing else.
+        XCTAssertEqual(items.count, 22)
     }
 
     // reviewQuizzes get an even spread across the whole batch rather than a
@@ -228,6 +230,59 @@ final class FeedItemInterleaveTests: XCTestCase {
     // `cards` pool. Without the `occurrence` disambiguator, both would
     // produce the same FeedItem.id, breaking SwiftUI's ForEach/
     // .scrollPosition(id:) uniqueness requirement.
+    // Checkin lands after every 15th card (CHECKIN_EVERY = 15), unconditional
+    // — unlike invite/goalReached it needs no gating flag.
+    func testCheckinLandsAfterEveryFifteenthCard() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(30), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true // isolates checkin placement from ad slots
+        )
+        let checkinIndices = items.indices.filter { if case .checkin = items[$0] { return true }; return false }
+        XCTAssertEqual(checkinIndices.count, 2)
+        XCTAssertEqual(items[checkinIndices[0] - 1].id, "card-card15-14")
+        XCTAssertEqual(items[checkinIndices[1] - 1].id, "card-card30-29")
+    }
+
+    // Invite lands exactly once, after the 12th card, but only when the
+    // every-other-session gate (showInviteCard) is on.
+    func testInviteLandsOnceAfterCardTwelveWhenShown() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(20), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true, showInviteCard: true
+        )
+        let inviteIndices = items.indices.filter { if case .invite = items[$0] { return true }; return false }
+        XCTAssertEqual(inviteIndices.count, 1)
+        XCTAssertEqual(items[inviteIndices[0] - 1].id, "card-card12-11")
+    }
+
+    func testInviteNeverLandsWhenGateIsOff() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(20), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true, showInviteCard: false
+        )
+        XCTAssertFalse(items.contains { if case .invite = $0 { return true }; return false })
+    }
+
+    // goalReached lands exactly at the snapshotted cards-array position
+    // (see FeedViewModel.markGoalReached), and not at all when nil.
+    func testGoalReachedLandsAtSnapshottedPositionWhenSet() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(20), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true, goalReachedAfter: 7
+        )
+        let goalIndices = items.indices.filter { if case .goalReached = items[$0] { return true }; return false }
+        XCTAssertEqual(goalIndices.count, 1)
+        XCTAssertEqual(items[goalIndices[0] - 1].id, "card-card7-6")
+    }
+
+    func testGoalReachedNeverLandsWhenNil() {
+        let items = FeedViewModel.buildItems(
+            cards: makeCards(20), quizzes: [], reviewQuizzes: [], guesses: [], misconceptions: [], explainPrompts: [],
+            premium: true, goalReachedAfter: nil
+        )
+        XCTAssertFalse(items.contains { if case .goalReached = $0 { return true }; return false })
+    }
+
     func testRepeatedCardsProduceUniqueIds() {
         let card = makeCards(1)[0]
         let items = FeedViewModel.buildItems(

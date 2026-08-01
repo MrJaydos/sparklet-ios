@@ -43,9 +43,33 @@ final class FeedViewModel: ObservableObject {
     private static let excludeWindow = 60
     private var recentExcludeIds: [String] { cards.suffix(Self.excludeWindow).map(\.id) }
 
+    // Session-recap state — mirrors Feed.tsx's sessionViewsRef/
+    // sessionCategories: purely client-side, scoped to this app launch
+    // (never reset by a topic-filter reload, only by markViewed's own
+    // per-card dedup resetting on a hard refresh — see apply(_:append:)).
+    @Published private(set) var sessionViews = 0
+    @Published private(set) var sessionTopicCount = 0
+    private var viewedCardIds: Set<String> = []
+    private var sessionCategories: Set<String> = []
+
+    // Snapshotted once, the first time the daily card-count goal is crossed
+    // this session — see markGoalReached(). nil means "not reached (yet)."
+    private var goalReachedAfter: Int?
+
+    // "Every other session" gating for the in-feed invite prompt — resolved
+    // once per FeedViewModel lifetime (effectively once per app launch,
+    // since FeedView only ever creates one), mirroring Feed.tsx's mount
+    // effect over `sparklet.inviteSessionCount`.
+    private var showInviteCard = false
+    private static let inviteSessionCountKey = "sparklet.inviteSessionCount"
+
     init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
         self.purchaseManager = purchaseManager
+        let defaults = UserDefaults.standard
+        let n = defaults.integer(forKey: Self.inviteSessionCountKey) + 1
+        defaults.set(n, forKey: Self.inviteSessionCountKey)
+        showInviteCard = n % 2 == 0
     }
 
     func loadIfNeeded() async {
@@ -142,6 +166,13 @@ final class FeedViewModel: ObservableObject {
             guesses = response.guesses
             misconceptions = response.misconceptions
             explainPrompts = response.explainPrompts
+            // A hard reset (initial load or the refresh button) can bring
+            // back a card already counted once — mirrors Feed.tsx's own
+            // `if (opts?.reset) { viewedRef.current = new Set() }`. Session
+            // totals themselves (sessionViews/sessionCategories) are NOT
+            // reset here — they're scoped to the whole app launch, not to
+            // any one fetched batch.
+            viewedCardIds.removeAll()
         }
         exhausted = response.exhausted
         rebuildItems()
@@ -159,7 +190,9 @@ final class FeedViewModel: ObservableObject {
             // not observed live — a user who subscribes mid-scroll stops
             // seeing new ad slides on their next load/refresh, not
             // retroactively mid-session. See AGENTS.md.
-            premium: purchaseManager.premium
+            premium: purchaseManager.premium,
+            showInviteCard: showInviteCard,
+            goalReachedAfter: goalReachedAfter
         )
     }
 
@@ -171,6 +204,8 @@ final class FeedViewModel: ObservableObject {
     private static let explainEvery = 12
     private static let explainOffset = 3
     private static let adEvery = 6
+    private static let checkinEvery = 15
+    private static let inviteAfterCards = 12
 
     // Ports Feed.tsx's exact interleave offsets: quiz lands on card 10, 20,
     // 30…; guess on 1, 13, 25…; misconception on 2, 12, 22…; explain on
@@ -192,7 +227,9 @@ final class FeedViewModel: ObservableObject {
         guesses: [FeedGuess],
         misconceptions: [FeedMisconception],
         explainPrompts: [FeedExplainPrompt],
-        premium: Bool = false
+        premium: Bool = false,
+        showInviteCard: Bool = false,
+        goalReachedAfter: Int? = nil
     ) -> [FeedItem] {
         var result: [FeedItem] = []
         var quizCursor = 0
@@ -234,12 +271,61 @@ final class FeedViewModel: ObservableObject {
             if !premium, position % adEvery == 0 {
                 result.append(.ad(key: position))
             }
+            // Check-in and invite both assume a signed-in account — this
+            // client is always signed in by the time it can reach the feed
+            // at all (see AGENTS.md's Invite section), so unlike Feed.tsx
+            // there's no separate guest check to port here.
+            if position % checkinEvery == 0 {
+                result.append(.checkin(afterCount: position))
+            }
+            if showInviteCard, position == inviteAfterCards {
+                result.append(.invite)
+            }
+            if let goalReachedAfter, position == goalReachedAfter {
+                result.append(.goalReached)
+            }
         }
         while reviewQuizCursor < reviewQuizzes.count {
             result.append(.reviewQuiz(reviewQuizzes[reviewQuizCursor]))
             reviewQuizCursor += 1
         }
         return result
+    }
+
+    // Mirrors Feed.tsx's markViewed: counts a card toward the session recap
+    // (checkin/goalReached copy) the moment it's actually viewed —
+    // unconditional of the 4.5s read-dwell gate trackView enforces below,
+    // since "I scrolled past this" and "the server counted it as read" are
+    // different questions. Keyed by cardId, not occurrence, so a
+    // recirculated repeat of the same card (see FeedItem's occurrence
+    // comment) doesn't inflate the count a second time within one batch.
+    func markSessionView(cardId: String) {
+        guard !viewedCardIds.contains(cardId) else { return }
+        viewedCardIds.insert(cardId)
+        sessionViews += 1
+        addSessionCategory(cards.first { $0.id == cardId }?.category.name)
+    }
+
+    // Mirrors Feed.tsx's addSessionCategory — called both from
+    // markSessionView (for a plain card) and from FeedView after a quiz/
+    // guess/misconception/explain answer, since those count toward the
+    // session's topic-count too even though they aren't cards.
+    func addSessionCategory(_ name: String?) {
+        guard let name else { return }
+        sessionCategories.insert(name)
+        sessionTopicCount = sessionCategories.count
+    }
+
+    // Snapshots the current sessionViews as the cards-array position the
+    // goalReached slide should land at, the first time this session the
+    // daily card-count goal is crossed — see buildItems' `position ==
+    // goalReachedAfter` check. A no-op on any later call this session
+    // (mirrors Feed.tsx's GOAL_HIT_KEY-gated markCardCompleted, which only
+    // ever sets goalReachedAfter once).
+    func markGoalReached() {
+        guard goalReachedAfter == nil else { return }
+        goalReachedAfter = sessionViews
+        rebuildItems()
     }
 
     // The server only counts a card as read once a second POST lands
