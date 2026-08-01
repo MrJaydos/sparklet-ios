@@ -7,6 +7,208 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Depth-preference memory built, closing "Still open" #11 (2026-08-01)** —
+ports `LearnCard.tsx`'s remembered-depth-switch behavior: a manual
+SIMPLE/DEEP/EXTRA_DEEP tap is also a preference, auto-applied to future
+cards as they scroll into view, until reset back to Standard. Pure
+client-side port, no backend change (reuses the existing
+`POST /api/cards/[id]/depth`).
+- `DepthPreference` (`Features/Feed/DepthPreference.swift`) wraps
+  `UserDefaults` under the same `"sparklet.depth"` key name the web uses
+  for its `localStorage` entry (the two stores aren't shared — same name
+  purely for parity/debuggability). `get()` returns `nil` for "never set,"
+  which callers treat identically to an explicit `.standard` — both mean
+  "don't auto-apply," mirroring the web's `pref !== "SIMPLE" && ... →
+  return` early-out.
+- `CardView.chooseDepth` (the manual-tap path) now writes the preference
+  before applying it; the actual apply logic was split out into a new
+  `applyDepth`, which the auto-apply path calls directly so it doesn't
+  re-write the preference on every card — mirrors the web's
+  `chooseDepth`(writes + applies) vs. `setDepth`(applies only) split
+  exactly.
+- The trigger is a new `isVisible: Bool` param `CardView` now takes from
+  `FeedView` (`item.id == visibleCardId`, the same source of truth
+  `FeedView`'s own read-tracking already uses) — **not** a plain
+  `.onAppear`, because SwiftUI's `LazyVStack` keeps a couple of
+  off-screen cards alive in a prefetch buffer; auto-applying depth for
+  those would silently trigger real card-variant generation for cards the
+  user never actually saw, the same "claiming something that isn't true"
+  integrity issue `FeedView`'s own read-tracking comment already flags
+  for view-dwell. A `.task(id: isVisible)` + one-shot `@State` guard
+  mirrors the web's `IntersectionObserver(threshold: 0.6)` firing once
+  then `disconnect()`-ing, rather than re-firing every time a card
+  scrolls back into view.
+- The auto-apply gate reuses `CardView`'s existing `isLocked(_:)` premium
+  check unchanged (not a second, possibly-drifting copy of the same
+  condition) — mirrors the web's own note that a lapsed subscriber's
+  saved DEEP/EXTRA_DEEP preference must not silently 402-loop on every
+  card in their feed.
+- New `DepthPreferenceTests` (3 cases: never-set → nil, set-then-get
+  round-trips, resettable back to `.standard`) — genuinely unit-testable
+  pure logic, unlike the `CardView` layout-only fixes above, which had no
+  testable surface.
+- **Verified live against real production data**, without forcing any
+  view state: seeded `DepthPreference.set(...)` once at app launch (a
+  temporary, reverted-after line in `SparkletApp.init`), then let the
+  *real* `isVisible` wiring do the rest — no hardcoded `@State`, since
+  this feature's whole point is reacting to a real card becoming visible.
+  First tried `.deep`: correctly did **not** auto-apply (rail stayed on
+  the 📖 Standard icon) because the signed-in test account isn't a
+  premium subscriber — confirms the reused `isLocked` gate works exactly
+  like the already-verified manual switch. Re-tested with `.simple`
+  (unlocked for everyone): the rail settled on the ✨ icon and the
+  card's title/body swapped to a real simplified variant ("Your teeth are
+  the only body parts that cannot heal themselves" → "Teeth Cannot Fix
+  Themselves") with zero taps — confirming the full pipeline
+  (read-preference → gate-check → fetch-or-cache → display-swap →
+  icon-update) end-to-end. Reinstalled the app afterward to clear the
+  seeded `UserDefaults` value before finishing (a plain code revert alone
+  doesn't undo state a previous run already wrote to the device) —
+  confirmed clean by relaunching and seeing a real card render with no
+  depth auto-applied and the Bearer-token session still intact (Keychain
+  survives app reinstall, `UserDefaults` doesn't). All 19 `SparkletTests`
+  pass (3 new).
+
+**Card-detail screen built, closing "Still open" #10 (2026-08-01)** — the
+🧭 related-cards `Menu` in `CardView` was informational-only (titles/icons,
+no link) because no card-detail screen existed in iOS to link to. Two
+pieces:
+- **Backend** (`sparklet` repo): new `GET /api/cards/[id]`
+  (`src/app/api/cards/[id]/route.ts`, committed `9a9ee46`, deployed) — the
+  web has no equivalent JSON route for a single card (`/card/[id]/
+  page.tsx` queries Prisma directly since it renders HTML server-side), so
+  this is new surface, not a port. Returns the same `FeedCard` shape
+  `GET /api/feed` already produces (reusing its `related` derivation via
+  `getRelatedCards`) specifically so the iOS client could decode the
+  response straight into its existing `FeedCard` model rather than adding
+  a second one. 401s when signed out — the iOS client is always
+  authenticated by the time it can reach this screen, same reasoning as
+  Invite's own no-login-redirect-gate note above. `npx tsc --noEmit` and
+  `npm run lint` clean; smoke-tested against a local dev server before
+  pushing (a pre-existing, unrelated local-DB migration drift —
+  `User.tzOffsetMinutes` missing — blocked a full authenticated round trip
+  against the *local* server specifically; fixing that drift and forging a
+  session row directly were both out of scope/correctly declined by the
+  session's own safety tooling, so this route's auth wiring was instead
+  confirmed via its 401-when-signed-out path, which is the exact same
+  `auth()` pattern already proven live in production by the existing
+  `vote`/`save`/`comments` routes it sits next to).
+- **iOS**: new `CardDetailView.swift` — fetches the single card via a new
+  `CardActionsAPI.fetchCard`, then renders the full untruncated card (no
+  `maxBodyLines`/"Read more" truncation — unlike the feed's `CardView`,
+  this screen has no fixed one-page height budget to protect) plus its own
+  vote/depth-switch/comments/save/share/report row and a real "Connects
+  to" list. Presented as a `.sheet` from `CardView`'s 🧭 menu, matching
+  every other secondary screen in this app (Comments/Report/Notifications/
+  etc. are all sheets, not `NavigationStack` pushes); a related card
+  tapped *from within* this screen opens another `CardDetailView` sheet
+  the same way, chaining to arbitrary depth via a locally scoped
+  `Identifiable` route. The action-rail state/logic (vote/save/depth/
+  comments/report) is deliberately duplicated from `CardView` rather than
+  extracted into a shared component — see the comment at the top of
+  `CardDetailView.swift` for why (the two layouts differ enough that a
+  shared component would need nearly as much layout-specific plumbing as
+  it'd save, for exactly two call sites).
+- **Verified live against real production data** (not the dev server —
+  see the backend note above): forced `CardView`'s related-menu sheet open
+  via the same temporarily-hardcoded-`@State` technique used throughout
+  this project, screenshotted, then reverted. **First attempt showed a
+  real-looking but ultimately harness-induced bug**: setting the forced
+  `@State` at `init` time (rather than after a delay) opened the sheet
+  before the surrounding feed's layout had settled, and the rendered
+  screenshot showed every line of text and the action-row icons clipped
+  hard against the left screen edge with no margin — looked exactly like
+  a genuine layout bug. Re-tested with the same forced state instead set
+  after a 2-second delay in a `.task` (matching how a real menu tap would
+  actually fire, always well after initial layout) and the glitch
+  completely disappeared — proving it was an artifact of presenting a
+  sheet synchronously at the view hierarchy's very first layout pass, not
+  a `CardDetailView` bug, and not something a real user tapping the menu
+  could ever trigger. Once confirmed, two different real cards rendered
+  correctly end-to-end this way: a text/image card ("This Beetle Uses
+  Infrared Sensors to Hunt Forest Fires") and a video-thumbnail card ("How
+  British Intelligence Used a Corpse to Trick Hitler"), both showing the
+  correct image, full untruncated body, working vote/depth/comments/save/
+  share/report row, and a real "Connects to" related-card link at the
+  bottom. All 16 `SparkletTests` still pass (unchanged — no new
+  unit-testable pure logic here, same as the `CardView` truncation fix
+  above).
+
+**Invite Universal Links: AASA file published, closing "Still open" #7
+(2026-08-01)** — the last missing piece, per the `DEVELOPMENT_TEAM` entry
+below: `sparkletapp.com/.well-known/apple-app-site-association` now exists
+and is live in production. Built as a Next.js Route Handler
+(`sparklet` repo, `src/app/.well-known/apple-app-site-association/
+route.ts`, committed and pushed `67940c1`, deployed via Coolify) rather
+than a static file in `public/` — this Next.js version's own bundled docs
+(`node_modules/next/dist/docs/.../backend-for-frontend.md`) list
+`.well-known` as a supported Route Handler segment, and a Route Handler
+guarantees the `Content-Type: application/json` response Apple's CDN
+expects regardless of static-file-serving defaults. `appID` is
+`"K4JYC7UP3A.com.sparklet.ios"` (the Team ID set below + this app's bundle
+ID); `paths` is scoped to `["/invite/*"]` only — every other route (feed,
+profile, terms, etc.) should keep opening in Safari, unchanged from
+today. Apple's own docs wouldn't render through this session's fetch
+tool, so the exact schema (`applinks.details[].appID`/`.paths`, `apps: []`
+at the top level) was cross-checked against several real, currently-live
+AASA files on GitHub (`bryceco/GoMap`, `meganz/webclient`, etc. — found via
+`gh search code`) rather than guessed from training data alone. **Verified
+against real production**: `curl https://sparkletapp.com/.well-known/
+apple-app-site-association` returns `200`, `content-type: application/
+json`, and the exact expected body — confirmed only after polling through
+~9 attempts (~2 minutes) for the Coolify deploy to actually roll out, not
+immediately after the push landed. `npx tsc --noEmit` and `npm run lint`
+both clean in the `sparklet` repo; also smoke-tested against a local
+`npm run dev` server before pushing. **Not verified — needs a real
+device**, unchanged from what "Still open" #7 already flagged: the
+simulator can't validate a genuine AASA fetch against Apple's actual CDN
+(`app-site-association.cdn-apple.com`), which is the one remaining step
+before a tapped `sparkletapp.com/invite/<id>` link is confirmed to
+actually open the app instead of Safari on a live device.
+
+**Fixed: `CardView` clipped unusually long cards instead of scrolling within
+their page (2026-07-30)** — closes "Still open" #3. A nested `ScrollView`
+was tried previously and reverted (it fights `.scrollTargetBehavior(.paging)`
+for the drag gesture); this instead caps the body to `maxBodyLines` (6 with
+an image, 10 without — a photo eats into the one-page height budget) and
+shows a "Read more" button, but only when that limit actually cut something
+off. Detecting that turned out to be the hard part:
+- **First attempt (wrong, caught by live testing, not by review): a pure
+  SwiftUI height-comparison trick** — two hidden `Text` copies (one
+  `.fixedSize`, one `.lineLimit`-constrained) behind the visible text via
+  `.background()`, comparing their `GeometryReader`-reported heights via
+  `PreferenceKey`s. This looked reasonable and built cleanly, but
+  `.background()` sizes its content to fit the host view, so the
+  "unconstrained natural height" copy never actually got to report its
+  true size — `isBodyTruncated` was always false. Screenshotting the real
+  signed-in app (see below) showed the tell: a real card's body visibly
+  ended in a truncated "…" with no "Read more" button below it, and a
+  large unexplained blank gap where the hidden measurers sat.
+- **Fixed by dropping SwiftUI layout measurement entirely**: `CardView`
+  now measures its own on-screen width once via a `GeometryReader` in
+  `.background()` (this one just reads the host's own resolved size —
+  no `fixedSize` fight — so it's reliable), then computes truncation with
+  plain UIKit math (`NSString.boundingRect` against `UIFont.preferredFont
+  (forTextStyle: .body)`, compared to `maxBodyLines * font.lineHeight`).
+  Deterministic, no SwiftUI background/fixedSize ambiguity to get wrong.
+- The untruncated escape hatch is a `.sheet` (`FullCardSheetView`) showing
+  the full card in a plain, non-paging `ScrollView` — safe because a sheet
+  sits above the feed in its own gesture space, unlike a scroll nested
+  directly inside the paging container.
+- **Verified live twice against the real production account** (both times
+  by temporarily hardcoding a `@State` default and reverting, same
+  technique used throughout this project): the first pass showed the bug
+  above (truncated text, no button, stray gap) on a real card about
+  Nozick/Chamberlain; after the fix, a real card ("Snails Have Thousands
+  of Microscopic Teeth") correctly showed a "Read more" button exactly
+  where the body was cut off, and tapping it open (forced via `@State`)
+  correctly rendered `FullCardSheetView` with the complete, untruncated
+  text of a different real card. All 16 `SparkletTests` still pass
+  (unchanged — this fix had no unit-testable pure-logic surface, it's a
+  live-rendering layout fix, so live screenshotting was the only way to
+  actually catch the first attempt's bug rather than just asserting it
+  away in a way that would've been consistent with the broken version too).
+
 **Fixed: feed dead-ended after ~10-15 swipes instead of scrolling
 indefinitely (2026-07-29)** — flagged by the user ("I want it to keep
 loading cards in so you can scroll for hours if you want to"). Root cause:
@@ -67,11 +269,8 @@ builds cleanly for the simulator with it set (simulator builds don't
 exercise real code signing, so this doesn't itself prove a device/archive
 build works, just that the setting is wired correctly). This unblocks two
 previously-noted follow-ups, though neither is fully closed yet:
-- **Invite Universal Links** ("Still open" #7): the AASA file's `appID`
-  can now be a real value (`K4JYC7UP3A.com.sparklet.ios`) instead of a
-  placeholder — still needs that file actually published at
-  `sparkletapp.com/.well-known/apple-app-site-association` (a `sparklet`
-  backend repo change, not this one) before it does anything.
+- ~~Invite Universal Links~~ **AASA file published 2026-08-01** — see
+  Status above.
 - **Real device / TestFlight builds and StoreKit App Store Connect setup**
   ("Still open" #9): still separately blocked on an actual App Store
   Connect app record existing, which a Team ID alone doesn't create.
@@ -614,13 +813,12 @@ UI that matches them rather than fights them:
    goal-celebration polish (`Celebration.tsx`) — this pass only ports the
    inline "+N XP" / combo chip (`QuizCardView.XpAwardChip`), not the
    daily-goal-crossing overlay.
-3. **`CardView` clips unusually long cards** instead of scrolling within
-   their page — a nested `ScrollView` was tried and reverted (see the
-   comment in `CardView.swift`: it fights `.scrollTargetBehavior(.paging)`
-   for the drag gesture). Basic paging itself is confirmed working (swiped
-   from a card to the next interleaved item on 2026-07-29 without issue),
-   but that was a short card — the long-card clipping case specifically
-   still needs an on-device look, not a blind fix.
+3. ~~`CardView` clips unusually long cards~~ **Fixed and verified live
+   2026-07-30** — see Status above: a line-limited body + "Read more"
+   sheet, with truncation detected via UIKit text measurement rather than
+   a SwiftUI layout trick (the first attempt at the latter measured wrong
+   and was caught by live screenshotting, not by code review or the unit
+   tests).
 4. ~~`.refreshable` may not fire on the paged feed~~ **Fixed and verified
    2026-07-29**: dropped `.refreshable` entirely rather than keep fighting
    a paging `ScrollView` for the overscroll gesture (see the git history
@@ -646,18 +844,12 @@ UI that matches them rather than fights them:
    faster than its snap animation could settle. Worth a light on-device
    sanity check (a few quick manual swipe-reversals) but not worth chasing
    further from this one occurrence under artificial conditions.
-7. **Invite Universal Links: `DEVELOPMENT_TEAM` now set (2026-07-29,
-   `K4JYC7UP3A`), AASA file still not published — this is the one
-   remaining step.** The `applinks:sparkletapp.com` entitlement is wired
-   in `project.yml`, and `RootView` already handles
-   `onContinueUserActivity(.browsingWeb)` correctly (see Status above) —
-   activation still needs a signed `apple-app-site-association` file at
-   `sparkletapp.com/.well-known/` whose `appID` is
-   `"K4JYC7UP3A.com.sparklet.ios"`, added to the `sparklet` backend repo
-   (not this one). Until that file exists, invite links still work today,
-   just by opening in Safari instead of the app. Once added: verify with a
-   real device (the simulator can't validate a genuine AASA against
-   Apple's CDN).
+7. ~~Invite Universal Links: AASA file not published~~ **AASA file
+   published and live in production 2026-08-01** — see Status above. Only
+   remaining step is verifying with a real device that tapping a
+   `sparkletapp.com/invite/<id>` link actually opens the app (the
+   simulator can't validate a genuine AASA fetch against Apple's real
+   CDN).
 8. **UI interaction verification gap, applies to every screen built
    2026-07-29 (Notifications through Knowledge map).** This session had no
    Accessibility permission for `System Events`, so no simulator taps
@@ -678,19 +870,11 @@ UI that matches them rather than fights them:
    two subscription products with IDs matching `Sparklet.storekit` exactly
    (`com.sparklet.ios.premium.monthly`/`.annual`) and register
    `POST /api/billing/apple/notifications`'s URL there.
-10. **Related-cards menu is informational only, not navigable.** `CardView`'s
-    🧭 related-cards `Menu` (see Status above) lists `FeedCard.related`'s
-    titles/icons but can't link anywhere — the web links to `/card/[id]`,
-    and there's no card-detail screen in iOS at all (comments/report/share
-    all reference `card.id` internally without ever rendering a
-    standalone card view). Worth building once/if a card-detail screen
-    exists for another reason; not scoped as its own project here since
-    the only current consumer would be this one menu.
-11. **Depth-preference memory not ported.** The web remembers a manual
-    depth switch (`localStorage`) and auto-applies it to future cards as
-    they scroll into view (`IntersectionObserver`). iOS only does the
-    manual per-card switch — see Status above for why this was left out
-    deliberately rather than missed.
+10. ~~Related-cards menu is informational only, not navigable~~ **Built and
+    verified live 2026-08-01** — see Status above: a new `CardDetailView`
+    screen, reachable from `CardView`'s 🧭 menu.
+11. ~~Depth-preference memory not ported~~ **Built and verified live
+    2026-08-01** — see Status above.
 
 ## Screens not yet built (scoped 2026-07-29)
 

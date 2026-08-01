@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Ports LearnCard.tsx's action rail (vote/depth/related/comments/save/
 // share/report) onto the existing boxed-panel card layout — see the
@@ -10,6 +11,14 @@ import SwiftUI
 // either.
 struct CardView: View {
     let card: FeedCard
+    // Whether this specific card is the one actually centered on screen —
+    // mirrors LearnCard.tsx's IntersectionObserver(threshold: 0.6), which
+    // fires the remembered-depth auto-apply only once a card is genuinely
+    // in view, not merely instantiated (SwiftUI's LazyVStack keeps a couple
+    // of off-screen cards alive too; auto-applying for those would be the
+    // same "claiming something that isn't true" integrity problem
+    // FeedView's read-tracking comment already flags for view-dwell).
+    let isVisible: Bool
     @EnvironmentObject private var authSession: AuthSession
     @EnvironmentObject private var purchaseManager: PurchaseManager
 
@@ -28,11 +37,48 @@ struct CardView: View {
     @State private var showingComments = false
     @State private var showingReport = false
     @State private var showingUpgrade = false
+    @State private var showingFullCard = false
+    @State private var relatedRoute: RelatedCardRoute?
+    @State private var cardWidth: CGFloat = 0
+    // Fire-once guard for the auto-apply effect below — same "per-view, so
+    // a fast scroll doesn't fire a generation for every card" semantics as
+    // the web's observer.disconnect() after its first trigger.
+    @State private var hasAutoAppliedDepthPreference = false
+
+    // A card fills exactly one page and a photo eats into that budget, so a
+    // card with an image gets a tighter line limit than a text-only one.
+    private var maxBodyLines: Int { card.imageUrl != nil ? 6 : 10 }
+
+    // Whether maxBodyLines actually cut something off, so "Read more" only
+    // shows up when there's something to read more of. A SwiftUI
+    // background()+fixedSize() height-comparison trick was tried first and
+    // measured wrong live (a `.background()` is sized to fit its host, so a
+    // "natural size" child inside one can't be trusted to report its own
+    // unconstrained height) — this instead measures with UIKit's
+    // NSString.boundingRect directly against the card's actual on-screen
+    // width, sidestepping that SwiftUI layout ambiguity entirely.
+    private var isBodyTruncated: Bool {
+        guard cardWidth > 0 else { return false }
+        // 32 = the outer content VStack's default .padding(); 56 = the
+        // body Text's own .padding(.trailing, 56) that keeps it clear of
+        // the action rail — both subtracted to get the Text's real width.
+        let width = max(cardWidth - 32 - 56, 0)
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        let fullHeight = (displayedBody as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        ).height
+        let limitedHeight = CGFloat(maxBodyLines) * font.lineHeight
+        return fullHeight > limitedHeight + 1
+    }
 
     private let api = CardActionsAPI()
 
-    init(card: FeedCard) {
+    init(card: FeedCard, isVisible: Bool) {
         self.card = card
+        self.isVisible = isVisible
         _score = State(initialValue: card.score)
         _myVote = State(initialValue: card.myVote)
         _saved = State(initialValue: card.saved)
@@ -46,10 +92,14 @@ struct CardView: View {
         // but body length varies (~40-80 words, occasionally more) and the
         // page height doesn't. A nested ScrollView here was tried and
         // reverted — a vertical scroll inside a .scrollTargetBehavior(.paging)
-        // parent captures the drag gesture and breaks paging, which isn't
-        // verifiable without a device/simulator. Known layout gap for now
-        // (see AGENTS.md): an unusually long card is clipped rather than
-        // scrollable within its page.
+        // parent captures the drag gesture and breaks paging. Fixed instead
+        // by capping the body to maxBodyLines and, only when that actually
+        // truncated something (isBodyTruncated below — not a character-count
+        // guess, which could under-truncate and silently hide content
+        // again), surfacing a "Read more" button that opens the untruncated
+        // card in a sheet. A sheet is presented above
+        // the feed with its own independent gesture space, so it can't
+        // conflict with the paging ScrollView the way a nested one did.
         ZStack(alignment: .bottomTrailing) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -81,6 +131,13 @@ struct CardView: View {
                     .font(.body)
                     .foregroundStyle(Theme.textSecondary)
                     .padding(.trailing, 56)
+                    .lineLimit(maxBodyLines)
+
+                if isBodyTruncated {
+                    Button("Read more") { showingFullCard = true }
+                        .font(.footnote.bold())
+                        .foregroundStyle(Theme.accentText)
+                }
 
                 if let firstSource = card.sources.first, let sourceURL = URL(string: firstSource.url) {
                     Link(firstSource.publisher, destination: sourceURL)
@@ -98,6 +155,11 @@ struct CardView: View {
                 .padding(.trailing, 10)
                 .padding(.bottom, 14)
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear.onAppear { cardWidth = geo.size.width }
+            }
+        )
         .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
         .sheet(isPresented: $showingComments) {
@@ -115,6 +177,15 @@ struct CardView: View {
         }
         .sheet(isPresented: $showingUpgrade) {
             UpgradeView(purchaseManager: purchaseManager)
+        }
+        .sheet(isPresented: $showingFullCard) {
+            FullCardSheetView(card: card, title: displayedTitle, bodyText: displayedBody)
+        }
+        .sheet(item: $relatedRoute) { route in
+            CardDetailView(cardId: route.id)
+        }
+        .task(id: isVisible) {
+            await autoApplyDepthPreferenceIfNeeded()
         }
     }
 
@@ -207,11 +278,13 @@ struct CardView: View {
     private var relatedMenu: some View {
         Menu {
             Section("Connects to") {
-                // No card-detail screen exists in iOS yet (see AGENTS.md), so
-                // unlike the web these aren't navigable — shown for parity
-                // with the web's "this connects to…" trail, not as links.
+                // Opens CardDetailView for the tapped related card — see
+                // AGENTS.md's "Still open" #10, now closed: this menu was
+                // informational-only until that screen existed to link to.
                 ForEach(card.related, id: \.id) { link in
-                    Text("\(link.icon) \(link.title)")
+                    Button("\(link.icon) \(link.title)") {
+                        relatedRoute = RelatedCardRoute(id: link.id)
+                    }
                 }
             }
         } label: {
@@ -311,11 +384,19 @@ struct CardView: View {
         }
     }
 
-    // A manual tap is deliberate — same "keep whatever loaded, if anything"
-    // philosophy as everything else here, just without the web's
-    // remembered-preference auto-apply-to-future-cards behavior (that's a
-    // client-side-only nicety, not core to the feature — see AGENTS.md).
+    // A manual tap is also a preference — mirrors LearnCard.tsx's
+    // chooseDepth: remember it (DepthPreference) so future cards auto-apply
+    // it as they scroll into view, then apply it to this card the same way
+    // the auto-apply path does.
     private func chooseDepth(_ target: DepthLevel) async {
+        DepthPreference.set(target)
+        await applyDepth(target)
+    }
+
+    // The auto-apply path calls this directly, skipping the preference
+    // write — mirrors the web's `setDepthRef.current(pref)` call, which
+    // reads the stored preference but deliberately doesn't re-write it.
+    private func applyDepth(_ target: DepthLevel) async {
         if target == .standard {
             currentLevel = .standard
             displayedTitle = card.title
@@ -346,4 +427,82 @@ struct CardView: View {
             // expired between the menu rendering and this tap.
         }
     }
+
+    // Mirrors LearnCard.tsx's IntersectionObserver effect: once this card is
+    // actually visible, auto-apply a remembered SIMPLE/DEEP/EXTRA_DEEP
+    // preference — nil (never set) or .standard (explicitly reset) both
+    // mean "leave it alone", same as the web's early-return. A lapsed
+    // subscriber's saved DEEP/EXTRA_DEEP preference must not silently
+    // 402-race on every card in their feed, so this reuses the exact same
+    // isLocked gate the manual menu already applies, not a separate check
+    // that could drift from it.
+    private func autoApplyDepthPreferenceIfNeeded() async {
+        guard isVisible, !hasAutoAppliedDepthPreference else { return }
+        hasAutoAppliedDepthPreference = true
+        guard let pref = DepthPreference.get(), pref != .standard, !isLocked(pref) else { return }
+        await applyDepth(pref)
+    }
+}
+
+// The untruncated escape hatch for CardView's "Read more" — a plain
+// non-paging ScrollView, safe here because a sheet sits above the feed in
+// its own gesture space rather than nesting inside .scrollTargetBehavior(.paging).
+private struct FullCardSheetView: View {
+    let card: FeedCard
+    let title: String
+    let bodyText: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("\(card.category.icon) \(card.category.name)")
+                        .font(.caption.bold())
+                        .foregroundStyle(Theme.textTertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Theme.panelAlt, in: Capsule())
+
+                    if let imageUrl = card.imageUrl, let url = URL(string: imageUrl) {
+                        AsyncImage(url: url) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Theme.panelAlt
+                        }
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Text(title)
+                        .font(.title2.bold())
+                        .foregroundStyle(Theme.textPrimary)
+
+                    Text(bodyText)
+                        .font(.body)
+                        .foregroundStyle(Theme.textSecondary)
+
+                    if let firstSource = card.sources.first, let sourceURL = URL(string: firstSource.url) {
+                        Link(firstSource.publisher, destination: sourceURL)
+                            .font(.caption)
+                            .foregroundStyle(Theme.accentText)
+                    }
+                }
+                .padding()
+            }
+            .background(Theme.background)
+            .navigationTitle("Full card")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+private struct RelatedCardRoute: Identifiable {
+    let id: String
 }

@@ -5,6 +5,13 @@ import Foundation
 struct CardActionsAPI {
     let client: APIClient = .shared
 
+    // GET /api/cards/[id] (sparklet repo) — single-card lookup for
+    // CardDetailView, returned in the same FeedCard shape the feed endpoint
+    // already uses so this decodes straight into the existing model.
+    func fetchCard(cardId: String, token: String?) async throws -> FeedCard {
+        try await client.get("api/cards/\(cardId)", token: token)
+    }
+
     private struct VoteRequest: Encodable { let value: Int }
     func vote(cardId: String, value: Int, token: String?) async throws -> VoteResponse {
         try await client.post("api/cards/\(cardId)/vote", body: VoteRequest(value: value), token: token)

@@ -196,7 +196,7 @@ struct FeedView: View {
     private func itemView(_ item: FeedItem) -> some View {
         switch item {
         case .card(let card, _):
-            CardView(card: card)
+            CardView(card: card, isVisible: item.id == visibleCardId)
         case .quiz(let quiz):
             QuizCardView(
                 question: quiz.question,
