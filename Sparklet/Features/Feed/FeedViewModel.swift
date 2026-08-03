@@ -87,17 +87,32 @@ final class FeedViewModel: ObservableObject {
     // Mirrors Feed.tsx's applyCategories: persist the new filter, then a
     // full reset load (a topic change means "start over," not "append") —
     // matching the same reset semantics `load()` already documents below.
-    // Also best-effort re-syncs POST /api/interests when the filter is
-    // non-empty, so persisted interests (nudge targeting, new-user boost)
-    // stay aligned with whatever the user actually filters to, not just
-    // their original onboarding picks — same as the web.
+    // Also best-effort re-syncs POST /api/interests — including an empty
+    // selection (clearing back to "Everything"), same as the web's own
+    // comment on why it POSTs unconditionally: UserInterest is the durable
+    // cross-device source of truth, so a clear has to reach the server too,
+    // not just non-empty picks. An earlier version of this method gated the
+    // POST on `!slugs.isEmpty`, which meant clearing the filter on iOS never
+    // reached the server at all.
     func applyCategoryFilter(_ slugs: [String]) async {
         selectedCategorySlugs = slugs
         CategoryPreference.set(slugs)
         await load()
-        if !slugs.isEmpty {
-            try? await onboardingAPI.submitInterests(categorySlugs: slugs, token: authSession.token)
-        }
+        try? await onboardingAPI.submitInterests(categorySlugs: slugs, token: authSession.token)
+    }
+
+    // Mirrors Feed.tsx's mount effect: local storage paints instantly (see
+    // `init` above), but the server's UserInterest rows are the durable
+    // cross-device source of truth, so a category change made on another
+    // platform (or a previous device) has to win once it arrives. Without
+    // this, iOS never learned about a filter set on the web at all — it
+    // only ever read its own on-device CategoryPreference.
+    func reconcileCategoryFilterWithServer() async {
+        guard let serverSlugs = try? await onboardingAPI.fetchInterests(token: authSession.token) else { return }
+        guard Set(serverSlugs) != Set(selectedCategorySlugs) else { return }
+        selectedCategorySlugs = serverSlugs
+        CategoryPreference.set(serverSlugs)
+        await load()
     }
 
     // Initial load and pull-to-refresh both replace the batch outright —

@@ -59,6 +59,17 @@ struct FeedSettingsView: View {
 
                     depthSection
                     goalSection
+
+                    // Mirrors CategorySheet.tsx commit 8068cd8: the confirm
+                    // action used to carry a dynamic label ("Show me
+                    // everything" / "Show N topics"), which duplicated the
+                    // meaning of the Random/Everything button above it. Now
+                    // a plain static "Apply" action (the toolbar button
+                    // below) plus this small live-feedback line instead.
+                    Text("Applying: \(applyingSummary)")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .padding()
             }
@@ -70,7 +81,7 @@ struct FeedSettingsView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(applyLabel) {
+                    Button("Apply") {
                         Task {
                             isApplying = true
                             await onApply(picked)
@@ -92,8 +103,8 @@ struct FeedSettingsView: View {
         }
     }
 
-    private var applyLabel: String {
-        picked.isEmpty ? "Show everything" : "Show \(picked.count)"
+    private var applyingSummary: String {
+        picked.isEmpty ? "Everything" : "\(picked.count) topic\(picked.count > 1 ? "s" : "")"
     }
 
     private var everythingButton: some View {

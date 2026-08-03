@@ -7,6 +7,163 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Three parity fixes prompted by the user, same session (2026-08-03)**:
+- **Category filter now syncs cross-device, closing a gap the user asked
+  about directly** ("will changes to a user's category selection also be
+  pulled and be consistent with the web app?"). Checked both sides:
+  `Feed.tsx`'s mount effect treats `GET /api/interests` (the `UserInterest`
+  table) as the durable cross-device source of truth, pulling it down and
+  overriding `localStorage` if they differ, and POSTs on every change
+  including clearing back to "Everything." iOS's `FeedViewModel` only ever
+  read/wrote its own local `CategoryPreference` (`UserDefaults`) — it never
+  fetched `GET /api/interests` at all, and its POST was gated on
+  `!slugs.isEmpty`, so a clear never reached the server either. Fixed:
+  `OnboardingAPI.fetchInterests` (new), a new
+  `FeedViewModel.reconcileCategoryFilterWithServer()` mirroring the web's
+  mount effect (called once at launch, after the local-storage-instant
+  first paint, from `FeedView`'s launch `.task`), and
+  `applyCategoryFilter` now POSTs unconditionally instead of only when
+  non-empty. **Verified live against the real production account**, in
+  three separate launches (the same forced-then-reverted technique used
+  throughout this project — this time forcing `FeedViewModel.init`'s
+  `selectedCategorySlugs` to `[]` to simulate a brand-new device with zero
+  local state, rather than a UI state): pushed a real "Code" filter from
+  iOS (confirmed via the topic pill going from 🎲 to a real "1" and the
+  feed actually filtering to Code-only cards), then a separate launch
+  starting from simulated zero local state correctly pulled "Code" back
+  down from the server and re-filtered — proving the full round trip
+  works both directions — then restored the account back to its original
+  unfiltered state. All 27 `SparkletTests` pass.
+- **`FeedSettingsView`'s Apply button now matches a same-day web change**
+  the user flagged ("The show everything button has been updated... to
+  apply changes rather than just resetting it"). Traced it to `sparklet`
+  commit `8068cd8` ("Replace dynamic 'Show me everything' button with a
+  static Apply + live feedback") — the web's confirm button used to carry
+  a dynamic label ("Show me everything"/"Show N topics") that duplicated
+  the meaning of the dedicated Random/Everything button above it; now a
+  plain static "Apply" action plus a small "Applying: Everything"/
+  "Applying: N topics" feedback line. Ported the same change to the
+  toolbar confirmation button (static "Apply" replacing the old dynamic
+  `applyLabel`) plus a matching `Text("Applying: \(applyingSummary)")` at
+  the bottom of the sheet's content. Verified live (forced the sheet open
+  via the same technique) — toolbar now reads a plain "Apply".
+- **First-visit swipe hint ported**, closing a gap the user flagged
+  directly ("We are also missing the swipe animation when you first open
+  the app to explain what you are meant to do"). Mirrors `Feed.tsx`'s
+  one-time "Start swiping to learn" hint: a `👆` that rises while
+  twisting with a fading vertical trail behind it, looping until
+  dismissed by the first real swipe, gated on the same `"sparklet.hinted"`
+  key name the web uses for its own `localStorage` entry (not shared
+  storage — same parity-only precedent as `DepthPreference`/
+  `CategoryPreference`). New `SwipeHintOverlayView.swift` ports
+  `globals.css`'s `swipe-hand`/`swipe-trail` keyframes (translateY+rotate+
+  opacity, ~1.7s loop) onto a single shared `PhaseAnimator` — deliberately
+  one animator driving both the hand and trail together rather than two
+  independent ones, since two separate `PhaseAnimator`s would each run
+  their own internal clock and drift out of sync with each other over
+  time. Gated on `viewModel.items.count > 1` (mirrors the web's
+  `cards.length > 1`) and shown/dismissed via `FeedView`'s existing
+  `visibleCardId` — the closest signal this paging `ScrollView` exposes
+  for "the user swiped" (settles on a new item), not truly identical to
+  the web's `onScroll` (which fires on the very first scroll pixel, before
+  settling) but functionally equivalent for a one-time hint. **Verified
+  live in the simulator**, three separate runs: a true fresh install (bare
+  `UserDefaults`, not just a forced `@State`) showed the hand mid-animation
+  and the "Start swiping to learn" pill correctly; a second screenshot 1s
+  later showed the hand faded out mid-loop, confirming the animation is
+  actually progressing, not a static frame; a temporarily-added 2-second
+  delayed simulated swipe (forcing `visibleCardId` to the next item,
+  reverted after) confirmed the hint correctly disappears on "swipe" and —
+  via one more relaunch with no debug code active — correctly does NOT
+  reappear afterward, confirming the persisted dismissal. All 27
+  `SparkletTests` pass (unchanged — no new unit-testable pure logic in
+  this particular piece, a live-rendering animation fix same as the
+  card-truncation fix earlier in this file).
+
+**Card visual redesign to match the web app's look (2026-08-03)** — flagged
+by the user: the app "feels and looks different from the main webapp," cards
+had a flat boxed panel that filled the screen instead of the web's per-category
+gradient backdrop.
+- `CardView` (`Features/Feed/CardView.swift`) no longer draws a boxed
+  `Theme.panel` background + `Theme.border` outline behind each card. Instead
+  it draws `LearnCard.tsx`'s own backdrop — a diagonal
+  `linear-gradient(160deg, categoryColor@15% 0%, background@45%, background@100%)`
+  wash of the card's own category color, edge-to-edge, fading into the app's
+  background — via a new `categoryGradient` computed property.
+- The category chip (e.g. "🚀 Space") is now tinted by the category's own
+  `colorHex` (20%-opacity background, full-color text), mirroring the web's
+  `${colorHex}33` bg / `colorHex` text, instead of a generic gray pill.
+  Applied consistently to `CardView`, `FullCardSheetView` (the "Read more"
+  sheet), and `CardDetailView` (the related-card detail screen) — the latter
+  intentionally keeps a flat (non-gradient) background, matching the web's
+  own `/card/[id]` page, which also has no backdrop gradient, only the
+  colored chip.
+- `FeedView`'s `ForEach` no longer applies its outer horizontal/vertical
+  padding to `.card` items specifically, so the gradient truly bleeds to the
+  screen edges rather than stopping at an inset box — every other slide kind
+  (quiz/guess/ad/checkin/etc.) keeps its existing boxed-panel padding
+  unchanged, since the user's complaint was specifically about cards.
+- No change to `maxBodyLines`/`isBodyTruncated`'s measurement math — both
+  already derive from the card's own measured width/height via the existing
+  `GeometryReader`, so they automatically picked up the ~32pt of extra width
+  from dropping the outer padding without needing a formula change.
+- **Verified live in the simulator** against the real signed-in account: a
+  real "Code"-category card ("The 370-Million-Dollar Number Overflow")
+  rendered with no visible panel/border, content flush to the screen edges,
+  a teal-tinted category chip, and a pixel-sampled confirmation of the
+  gradient itself — `(16, 24, 22)` near the card's top-left (a teal tint)
+  versus the pure `(10, 10, 10)` background elsewhere, fading out toward the
+  bottom/right as designed.
+- **Follow-up, same day**: the user pointed out the gradient should also
+  show behind the top nav bar (`StatsHeaderView`), and that the guess/quiz/
+  misconception/explain slides still looked like boxed cards rather than
+  the same cleaned-up look. Checked the web (`QuizView.tsx`/`GuessView.tsx`/
+  `MisconceptionView.tsx`/`ExplainView.tsx`) — all four are the exact same
+  `h-dvh w-full` full-bleed shape with their own per-category
+  `linear-gradient` backdrop as `LearnCard.tsx`, none of them a boxed panel;
+  `AppHeader.tsx` itself is `fixed inset-x-0 top-0` with no background of
+  its own, floating over whichever slide's gradient is showing through.
+  - Moved the gradient from being painted per-card (`CardView`'s own
+    `.background`) to a single shared backdrop at the `FeedView` level —
+    a new `feedBackdrop` computed from whichever item is currently visible
+    (`currentCategoryColorHex`, switching over every category-bearing
+    `FeedItem` case), painted as the bottom layer of a `ZStack` with
+    `.ignoresSafeArea()`, with the header+scroll content stacked on top of
+    it instead of a sibling with its own opaque `Theme.background`. Since
+    this is a paging feed with only one item ever visible at a time, one
+    global layer keyed off `visibleCardId` is equivalent to a per-item
+    background, except it also reaches the area behind the header, which a
+    background scoped to an individual item's own frame structurally could
+    not.
+  - `QuizCardView`/`GuessCardView`/`MisconceptionCardView`/
+    `ExplainCardView` all dropped their own `Theme.panel` boxed background
+    + border (now redundant with the shared backdrop) and had their
+    category/quiz chips recolored to the category's own `colorHex`, mirroring
+    the web exactly (a `Review` slot keeps a fixed violet badge regardless
+    of category, matching `QuizView.tsx`'s own branch). Their answer-result
+    panels (the "✅ Nailed it" / reveal boxes) gained an explicit
+    `Theme.panel.opacity(0.9)` background, mirroring the web's own
+    `rounded-xl bg-neutral-900/90 p-4` reveal box — otherwise that text
+    would've floated directly on the gradient with no visual separation
+    now that the outer panel is gone.
+  - `FeedView`'s `ForEach` now treats every category-bearing item kind
+    (card/quiz/reviewQuiz/guess/misconception/explain) as edge-to-edge (no
+    outer padding), via a new `isEdgeToEdge(_:)` helper — `.ad`/`.checkin`/
+    `.invite`/`.goalReached` (no per-category color to show) keep the boxed
+    panel treatment unchanged, since those weren't part of what was flagged.
+  - **Verified live**: a full-opacity debug pass on the gradient (reverted
+    after) confirmed the backdrop paints correctly across the entire screen
+    including behind the status bar/header, ruling out a structural bug
+    before trusting the intended subtle 15%-opacity version (which is hard
+    to distinguish from compression artifacts in a screenshot at that
+    opacity). Separately, temporarily force-jumping `visibleCardId` to the
+    first `.guess` item (same forced-then-reverted technique used
+    throughout this project) confirmed a real guess card ("How many toes do
+    many of the famous cats at Ernest Hemingway's Key West home have?")
+    renders with no boxed panel, a category-tinted "🎭 Guess" chip, and the
+    gradient visible behind the header — then reverted the debug jump and
+    rebuilt clean.
+
 **Real app icon added, and five bugs/gaps fixed from live user feedback
 (2026-08-01)**:
 - **App icon**: the project had no `AppIcon` configured at all (no

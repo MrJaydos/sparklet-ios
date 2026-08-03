@@ -107,10 +107,10 @@ struct CardDetailView: View {
                 HStack {
                     Text("\(card.category.icon) \(card.category.name)")
                         .font(.caption.bold())
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(Color(hexString: card.category.colorHex))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
-                        .background(Theme.panelAlt, in: Capsule())
+                        .background(Color(hexString: card.category.colorHex).opacity(0.2), in: Capsule())
                     Spacer()
                 }
 

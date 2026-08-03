@@ -22,10 +22,10 @@ struct ExplainCardView: View {
             HStack {
                 Text("\(prompt.category.icon) Explain it back")
                     .font(.caption.bold())
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(categoryColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(Theme.panelAlt, in: Capsule())
+                    .background(categoryColor.opacity(0.2), in: Capsule())
                 Spacer()
             }
 
@@ -44,8 +44,15 @@ struct ExplainCardView: View {
         .padding()
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
+        // No boxed panel — FeedView paints one shared per-category backdrop
+        // behind this and every other slide kind, matching
+        // ExplainView.tsx's own full-bleed `h-dvh w-full` shape rather than
+        // a boxed card.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var categoryColor: Color {
+        Color(hexString: prompt.category.colorHex)
     }
 
     private var composerView: some View {
@@ -100,6 +107,9 @@ struct ExplainCardView: View {
         }
     }
 
+    // Mirrors ExplainView.tsx's own reveal box (`rounded-xl bg-neutral-900/90
+    // p-4`) — a semi-opaque panel over the full-bleed backdrop, distinct
+    // from the boxed-panel-per-card look this view no longer has overall.
     private func resultView(_ result: ExplainAnswerResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if wasSkipped {
@@ -129,5 +139,7 @@ struct ExplainCardView: View {
                 }
             }
         }
+        .padding()
+        .background(Theme.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 16))
     }
 }

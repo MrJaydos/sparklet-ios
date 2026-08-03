@@ -36,6 +36,12 @@ struct FeedView: View {
     @State private var showingStreakInfo = false
     @State private var showingXpInfo = false
     @State private var showingFeedSettings = false
+    // Mirrors Feed.tsx's one-time swipe hint — "sparklet.hinted" is the same
+    // key name the web uses for its own localStorage entry (not shared
+    // storage, just parity, same precedent as DepthPreference/
+    // CategoryPreference).
+    @AppStorage("sparklet.hinted") private var hasSeenSwipeHint = false
+    @State private var showSwipeHint = false
 
     init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
@@ -49,51 +55,97 @@ struct FeedView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            StatsHeaderView(
-                profile: statsViewModel.profile,
-                topicLabel: topicLabel,
-                isRefreshing: isRefreshing,
-                onRefresh: { Task { await refresh() } },
-                unreadNotifications: notificationsViewModel.unreadCount,
-                onOpenNotifications: { showingNotifications = true },
-                onOpenFriends: { showingFriends = true },
-                onOpenLeaderboard: { showingLeaderboard = true },
-                onOpenProfile: { showingProfile = true },
-                onOpenStreakInfo: { showingStreakInfo = true },
-                onOpenXpInfo: { showingXpInfo = true },
-                onOpenFeedSettings: { showingFeedSettings = true }
-            )
-            .padding(.vertical, 8)
+        ZStack {
+            // A single full-screen backdrop, driven by whichever item is
+            // currently visible, sitting behind BOTH the scroll content and
+            // the header — mirrors AppHeader.tsx, which floats
+            // (`fixed inset-x-0 top-0`) with no background of its own over
+            // whichever card/quiz/guess/etc.'s own gradient is showing
+            // through underneath, rather than the header sitting on a flat
+            // opaque bar. Previously each slide painted its own gradient
+            // scoped to its own frame (below the header), so the wash never
+            // reached the area behind the header/status bar at all.
+            feedBackdrop
+                .ignoresSafeArea()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(viewModel.items) { item in
-                            itemView(item)
-                                .padding(.horizontal)
-                                .padding(.vertical, 8)
-                                .containerRelativeFrame(.vertical)
-                                .id(item.id)
+            VStack(spacing: 0) {
+                StatsHeaderView(
+                    profile: statsViewModel.profile,
+                    topicLabel: topicLabel,
+                    isRefreshing: isRefreshing,
+                    onRefresh: { Task { await refresh() } },
+                    unreadNotifications: notificationsViewModel.unreadCount,
+                    onOpenNotifications: { showingNotifications = true },
+                    onOpenFriends: { showingFriends = true },
+                    onOpenLeaderboard: { showingLeaderboard = true },
+                    onOpenProfile: { showingProfile = true },
+                    onOpenStreakInfo: { showingStreakInfo = true },
+                    onOpenXpInfo: { showingXpInfo = true },
+                    onOpenFeedSettings: { showingFeedSettings = true }
+                )
+                .padding(.vertical, 8)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(viewModel.items) { item in
+                                // Cards and every interactive slide kind that
+                                // carries a category (quiz/guess/
+                                // misconception/explain) go edge-to-edge —
+                                // LearnCard.tsx/QuizView.tsx/GuessView.tsx/
+                                // MisconceptionView.tsx/ExplainView.tsx are
+                                // all the same `h-dvh w-full` full-bleed
+                                // shape on the web, none of them a boxed
+                                // panel. Ad/checkin/invite/goalReached (no
+                                // per-category color to show) keep the boxed
+                                // panel treatment they already had.
+                                if isEdgeToEdge(item) {
+                                    itemView(item)
+                                        .containerRelativeFrame(.vertical)
+                                        .id(item.id)
+                                } else {
+                                    itemView(item)
+                                        .padding(.horizontal)
+                                        .padding(.vertical, 8)
+                                        .containerRelativeFrame(.vertical)
+                                        .id(item.id)
+                                }
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .scrollTargetLayout()
+                    .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
+                    // end the user can see coming — wrong signal for a feed
+                    // designed to keep loading indefinitely (see FeedViewModel's
+                    // allowRepeats-based pagination).
+                    .scrollContentBackground(.hidden)
+                    .scrollTargetBehavior(.paging)
+                    .defaultScrollAnchor(.top)
+                    .scrollPosition(id: $visibleCardId)
+                    .onAppear { scrollProxy = proxy }
                 }
-                .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
-                // end the user can see coming — wrong signal for a feed
-                // designed to keep loading indefinitely (see FeedViewModel's
-                // allowRepeats-based pagination).
-                .scrollContentBackground(.hidden)
-                .scrollTargetBehavior(.paging)
-                .defaultScrollAnchor(.top)
-                .scrollPosition(id: $visibleCardId)
-                .onAppear { scrollProxy = proxy }
             }
         }
-        .background(Theme.background)
         .overlay {
             if viewModel.isLoading && viewModel.items.isEmpty {
                 ProgressView().tint(Theme.textTertiary)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showSwipeHint {
+                SwipeHintOverlayView()
+                    .padding(.bottom, 48)
+            }
+        }
+        // Mirrors Feed.tsx's onScroll={showSwipeHint ? dismissSwipeHint :
+        // undefined} — dismissed by the first real swipe. visibleCardId
+        // only changes once a swipe actually settles on a different item,
+        // not on every scroll pixel like the web's onScroll, but it's the
+        // closest signal this paging ScrollView exposes for "the user swiped."
+        .onChange(of: visibleCardId) { _, _ in
+            if showSwipeHint {
+                showSwipeHint = false
+                hasSeenSwipeHint = true
             }
         }
         .task {
@@ -108,6 +160,15 @@ struct FeedView: View {
             }
             await statsViewModel.load()
             await notificationsViewModel.refreshUnreadCount()
+            // Mirrors Feed.tsx's mount effect: the local CategoryPreference
+            // paints instantly above via loadIfNeeded(), but the server's
+            // UserInterest rows are the durable cross-device source of
+            // truth — reconcile after that first paint, and re-seed
+            // visibleCardId if the reconcile ends up replacing the batch.
+            await viewModel.reconcileCategoryFilterWithServer()
+            if visibleCardId != viewModel.items.first?.id {
+                visibleCardId = viewModel.items.first?.id
+            }
             // Same one-time "first session, never onboarded" condition as
             // the web's feed-page redirect, computed server-side (see
             // ProfileResponse.needsOnboarding) — this client has no
@@ -115,6 +176,16 @@ struct FeedView: View {
             // stands in for the web's separate /onboarding route.
             if statsViewModel.profile?.needsOnboarding == true {
                 showingOnboarding = true
+            }
+            // Mirrors Feed.tsx's one-time swipe hint — gated on
+            // items.count > 1 (cards.length > 1 on the web) so it never
+            // shows over a single-item feed with nothing to swipe to.
+            // Activated last, after every internal visibleCardId reseed
+            // above, so the .onChange(of: visibleCardId) dismissal handler
+            // only ever fires on a genuine user swipe, not one of those
+            // programmatic reseeds.
+            if !hasSeenSwipeHint && viewModel.items.count > 1 {
+                showSwipeHint = true
             }
         }
         .sheet(isPresented: $showingNotifications) {
@@ -203,6 +274,52 @@ struct FeedView: View {
     private var currentItem: FeedItem? {
         guard let visibleCardId else { return nil }
         return viewModel.items.first { $0.id == visibleCardId }
+    }
+
+    // Mirrors LearnCard.tsx/QuizView.tsx/GuessView.tsx/MisconceptionView.tsx/
+    // ExplainView.tsx's shared backdrop:
+    // `linear-gradient(160deg, ${colorHex}26 0%, #0a0a0a 45%, #0a0a0a 100%)`.
+    // Computed once here at the feed level (not per-item) since only one
+    // item is ever visible at a time in this paging feed — a single global
+    // layer behind the header achieves the exact same look as painting it
+    // per-item, but also reaches behind the header, which a per-item
+    // background scoped to that item's own frame never could.
+    private var feedBackdrop: some View {
+        Group {
+            if let hex = currentCategoryColorHex {
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(hexString: hex).opacity(0.15), location: 0),
+                        .init(color: Theme.background, location: 0.45),
+                        .init(color: Theme.background, location: 1),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                Theme.background
+            }
+        }
+    }
+
+    private var currentCategoryColorHex: String? {
+        guard let currentItem else { return nil }
+        switch currentItem {
+        case .card(let c, _): return c.category.colorHex
+        case .quiz(let q): return q.category.colorHex
+        case .reviewQuiz(let q): return q.category.colorHex
+        case .guess(let g): return g.category.colorHex
+        case .misconception(let m): return m.category.colorHex
+        case .explain(let e): return e.category.colorHex
+        case .ad, .checkin, .invite, .goalReached: return nil
+        }
+    }
+
+    private func isEdgeToEdge(_ item: FeedItem) -> Bool {
+        switch item {
+        case .card, .quiz, .reviewQuiz, .guess, .misconception, .explain: return true
+        case .ad, .checkin, .invite, .goalReached: return false
+        }
     }
 
     // Mirrors Feed.tsx's topicLabel — simplified to a count rather than the

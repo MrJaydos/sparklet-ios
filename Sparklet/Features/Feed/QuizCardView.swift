@@ -19,12 +19,15 @@ struct QuizCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
+                // Mirrors QuizView.tsx: a review slot keeps the fixed violet
+                // "Review" badge regardless of category; a plain recall quiz
+                // is tinted by its own category color instead.
                 Text("\(category.icon) \(isReview ? "Review" : "Quiz")")
                     .font(.caption.bold())
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(isReview ? Theme.accentText : categoryColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(Theme.panelAlt, in: Capsule())
+                    .background((isReview ? Theme.accent : categoryColor).opacity(0.2), in: Capsule())
                 Spacer()
             }
 
@@ -47,8 +50,14 @@ struct QuizCardView: View {
         .padding()
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
+        // No boxed panel — FeedView paints one shared per-category backdrop
+        // behind this and every other slide kind, matching QuizView.tsx's
+        // own full-bleed `h-dvh w-full` shape rather than a boxed card.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var categoryColor: Color {
+        Color(hexString: category.colorHex)
     }
 
     private func optionButton(_ index: Int) -> some View {
@@ -94,6 +103,9 @@ struct QuizCardView: View {
         return .clear
     }
 
+    // Mirrors QuizView.tsx's own reveal box (`rounded-xl bg-neutral-900/90
+    // p-4`) — a semi-opaque panel over the full-bleed backdrop, distinct
+    // from the boxed-panel-per-card look this view no longer has overall.
     private func resultView(_ result: QuizAnswerResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(result.correct ? "✅ Nailed it" : "💡 Good try — now you know")
@@ -106,6 +118,8 @@ struct QuizCardView: View {
                 XpAwardChip(xp: result.xp, combo: result.combo, multiplier: result.multiplier)
             }
         }
+        .padding()
+        .background(Theme.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

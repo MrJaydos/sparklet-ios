@@ -26,4 +26,14 @@ struct OnboardingAPI {
             token: token
         )
     }
+
+    // Mirrors Feed.tsx's mount-time GET /api/interests fetch — the
+    // `UserInterest` table (not either platform's local storage) is the
+    // durable cross-device source of truth for the topic filter.
+    private struct FetchInterestsResponse: Decodable { let categorySlugs: [String] }
+
+    func fetchInterests(token: String?) async throws -> [String] {
+        let response: FetchInterestsResponse = try await client.get("api/interests", token: token)
+        return response.categorySlugs
+    }
 }

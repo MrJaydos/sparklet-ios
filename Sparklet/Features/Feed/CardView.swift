@@ -100,6 +100,10 @@ struct CardView: View {
         return max(Int((available / bodyFont.lineHeight).rounded(.down)), 2)
     }
 
+    private var categoryColor: Color {
+        Color(hexString: card.category.colorHex)
+    }
+
     private static func boldFont(_ style: UIFont.TextStyle) -> UIFont {
         let base = UIFont.preferredFont(forTextStyle: style)
         let descriptor = base.fontDescriptor.withSymbolicTraits(.traitBold) ?? base.fontDescriptor
@@ -160,12 +164,17 @@ struct CardView: View {
         ZStack(alignment: .bottomTrailing) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
+                    // Mirrors LearnCard.tsx's category chip: tinted by the
+                    // category's own color (colorHex33 bg / colorHex text),
+                    // not a generic gray pill — the chip is the one element
+                    // on the web card that's colored per-category besides
+                    // the backdrop gradient itself.
                     Text("\(card.category.icon) \(card.category.name)")
                         .font(.caption.bold())
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(categoryColor)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
-                        .background(Theme.panelAlt, in: Capsule())
+                        .background(categoryColor.opacity(0.2), in: Capsule())
                     Spacer()
                 }
 
@@ -220,8 +229,12 @@ struct CardView: View {
                 }
             }
         )
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
+        // No background painted here — FeedView paints one shared backdrop
+        // (driven by whichever item is currently visible) behind the header
+        // too, which a per-card background scoped to this view's own frame
+        // couldn't reach. This just needs to stay transparent and fill its
+        // page so that shared backdrop shows through evenly.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showingComments) {
             CommentsSheetView(
                 cardId: card.id,
@@ -519,10 +532,10 @@ private struct FullCardSheetView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("\(card.category.icon) \(card.category.name)")
                         .font(.caption.bold())
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(Color(hexString: card.category.colorHex))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
-                        .background(Theme.panelAlt, in: Capsule())
+                        .background(Color(hexString: card.category.colorHex).opacity(0.2), in: Capsule())
 
                     if let imageUrl = card.imageUrl, let url = URL(string: imageUrl) {
                         AsyncImage(url: url) { image in
