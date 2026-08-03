@@ -44,11 +44,12 @@ struct GuessCardView: View {
             } else {
                 sliderView
             }
-
-            Spacer(minLength: 0)
         }
         .padding()
-        .frame(maxHeight: .infinity, alignment: .top)
+        // Mirrors GuessView.tsx's `justify-center` — vertically centered
+        // rather than pinned to the top with a trailing Spacer eating the
+        // leftover room, flagged live by the user as looking off.
+        .frame(maxHeight: .infinity, alignment: .center)
         .clipped()
         // No boxed panel — FeedView paints one shared per-category backdrop
         // behind this and every other slide kind, matching GuessView.tsx's

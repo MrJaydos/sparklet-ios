@@ -7,6 +7,53 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Two more live-flagged fixes, same session (2026-08-03)**: "I don't like
+the next card poking out. I also think the quiz cards and the rest of them
+should be centered rather than [top] aligned."
+- **Next-item peek at the bottom, fixed.** Confirmed via screenshot +
+  pixel sampling this was a real, consistent ~18pt sliver of the next
+  item's category chip visible at the bottom of every page, not the rare
+  post-programmatic-jump mis-snap "Still open" #6 already documents —
+  this one showed up on a completely untouched, freshly-loaded feed.
+  Root cause: `StatsHeaderView` was a sibling row above the `ScrollView`
+  in a plain `VStack`, which shrank the `ScrollView`'s own bounds by the
+  header's height; each page is sized via `.containerRelativeFrame(
+  .vertical)` against those bounds, but the bottom safe-area inset was
+  *also* separately eating into that same space, so the page ScrollView
+  actually measured against was a little shorter than a true full screen
+  — leaving the next item's top edge visible. Fixed in two steps, each
+  verified live before moving to the next: (1) moved the header out of
+  the `VStack` into a floating `.safeAreaInset(edge: .top)` on the
+  `ScrollView` instead (mirrors `AppHeader.tsx`'s own `fixed inset-x-0
+  top-0` floating-over-content behavior) — verified this alone did NOT
+  fix the peek, ruling out "header eating layout space" as the sole
+  cause; (2) added `.ignoresSafeArea(edges: .bottom)` to the `ScrollView`
+  on top of that — tried plain `.ignoresSafeArea()` (all edges) first,
+  which fixed the peek but regressed the header up underneath the status
+  bar (confirmed live via screenshot), then narrowed it to `.bottom`
+  only, which fixed the peek with the header still correctly positioned
+  below the status bar (also confirmed live, plus a pixel-level bottom-
+  edge scan showing flat background color all the way to the true
+  bottom with no chip-color transition anywhere).
+- **Quiz/guess/misconception/explain now vertically centered.** Checked
+  the web: `QuizView.tsx`/`GuessView.tsx`/`MisconceptionView.tsx`/
+  `ExplainView.tsx` all use `justify-center`, while `LearnCard.tsx` (the
+  plain reading card) uses `justify-end` — these four interactive slide
+  kinds were never supposed to be top-aligned like the plain card is.
+  Changed all four views' `.frame(maxHeight: .infinity, alignment:
+  .top)` to `.center` and removed the trailing `Spacer(minLength: 0)`
+  each one had (which existed specifically to push content to the top
+  under the old alignment — centering doesn't need it). `CardView`
+  itself is deliberately unchanged — its top alignment is load-bearing
+  for the `maxBodyLines`/"Read more" truncation math, and the user's
+  phrasing ("quiz cards and the rest of them") was about the interactive
+  slide kinds, not the plain reading card. Verified live (forced
+  `visibleCardId` to the first quiz slide, the same technique used
+  throughout this project): content now sits centered with balanced
+  space above and below, instead of pinned to the top with a large empty
+  gap underneath. All 27 `SparkletTests` pass (unchanged — both fixes are
+  live-rendering layout fixes with no new unit-testable pure logic).
+
 **Three parity fixes prompted by the user, same session (2026-08-03)**:
 - **Category filter now syncs cross-device, closing a gap the user asked
   about directly** ("will changes to a user's category selection also be

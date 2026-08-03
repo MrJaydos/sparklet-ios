@@ -68,61 +68,79 @@ struct FeedView: View {
             feedBackdrop
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                StatsHeaderView(
-                    profile: statsViewModel.profile,
-                    topicLabel: topicLabel,
-                    isRefreshing: isRefreshing,
-                    onRefresh: { Task { await refresh() } },
-                    unreadNotifications: notificationsViewModel.unreadCount,
-                    onOpenNotifications: { showingNotifications = true },
-                    onOpenFriends: { showingFriends = true },
-                    onOpenLeaderboard: { showingLeaderboard = true },
-                    onOpenProfile: { showingProfile = true },
-                    onOpenStreakInfo: { showingStreakInfo = true },
-                    onOpenXpInfo: { showingXpInfo = true },
-                    onOpenFeedSettings: { showingFeedSettings = true }
-                )
-                .padding(.vertical, 8)
-
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(viewModel.items) { item in
-                                // Cards and every interactive slide kind that
-                                // carries a category (quiz/guess/
-                                // misconception/explain) go edge-to-edge —
-                                // LearnCard.tsx/QuizView.tsx/GuessView.tsx/
-                                // MisconceptionView.tsx/ExplainView.tsx are
-                                // all the same `h-dvh w-full` full-bleed
-                                // shape on the web, none of them a boxed
-                                // panel. Ad/checkin/invite/goalReached (no
-                                // per-category color to show) keep the boxed
-                                // panel treatment they already had.
-                                if isEdgeToEdge(item) {
-                                    itemView(item)
-                                        .containerRelativeFrame(.vertical)
-                                        .id(item.id)
-                                } else {
-                                    itemView(item)
-                                        .padding(.horizontal)
-                                        .padding(.vertical, 8)
-                                        .containerRelativeFrame(.vertical)
-                                        .id(item.id)
-                                }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(viewModel.items) { item in
+                            // Cards and every interactive slide kind that
+                            // carries a category (quiz/guess/
+                            // misconception/explain) go edge-to-edge —
+                            // LearnCard.tsx/QuizView.tsx/GuessView.tsx/
+                            // MisconceptionView.tsx/ExplainView.tsx are
+                            // all the same `h-dvh w-full` full-bleed
+                            // shape on the web, none of them a boxed
+                            // panel. Ad/checkin/invite/goalReached (no
+                            // per-category color to show) keep the boxed
+                            // panel treatment they already had.
+                            if isEdgeToEdge(item) {
+                                itemView(item)
+                                    .containerRelativeFrame(.vertical)
+                                    .id(item.id)
+                            } else {
+                                itemView(item)
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 8)
+                                    .containerRelativeFrame(.vertical)
+                                    .id(item.id)
                             }
                         }
-                        .scrollTargetLayout()
                     }
-                    .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
-                    // end the user can see coming — wrong signal for a feed
-                    // designed to keep loading indefinitely (see FeedViewModel's
-                    // allowRepeats-based pagination).
-                    .scrollContentBackground(.hidden)
-                    .scrollTargetBehavior(.paging)
-                    .defaultScrollAnchor(.top)
-                    .scrollPosition(id: $visibleCardId)
-                    .onAppear { scrollProxy = proxy }
+                    .scrollTargetLayout()
+                }
+                .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
+                // end the user can see coming — wrong signal for a feed
+                // designed to keep loading indefinitely (see FeedViewModel's
+                // allowRepeats-based pagination).
+                .scrollContentBackground(.hidden)
+                .scrollTargetBehavior(.paging)
+                .defaultScrollAnchor(.top)
+                .scrollPosition(id: $visibleCardId)
+                .onAppear { scrollProxy = proxy }
+                // The header used to be a sibling row above the ScrollView in
+                // a plain VStack, which shrank the ScrollView's own bounds by
+                // the header's height — since each page is sized via
+                // .containerRelativeFrame(.vertical) against those bounds,
+                // but the bottom safe-area inset was still separately eating
+                // into that same space a second time, a sliver of the next
+                // item was always visible at the bottom (flagged live by the
+                // user — confirmed it wasn't just a header-space issue: even
+                // after moving the header to a floating .safeAreaInset below,
+                // the peek persisted until this .ignoresSafeArea(edges:
+                // .bottom) was added too, and adding it to .top as well
+                // regressed the header up under the status bar, confirmed
+                // live — bottom-only is the fix). A floating
+                // .safeAreaInset(edge: .top) header keeps the ScrollView's
+                // own frame at the true full screen size — matching
+                // AppHeader.tsx's own `fixed inset-x-0 top-0`
+                // floating-over-content behavior — so each page is a true
+                // full-screen page with nothing left over to peek through.
+                .ignoresSafeArea(edges: .bottom)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    StatsHeaderView(
+                        profile: statsViewModel.profile,
+                        topicLabel: topicLabel,
+                        isRefreshing: isRefreshing,
+                        onRefresh: { Task { await refresh() } },
+                        unreadNotifications: notificationsViewModel.unreadCount,
+                        onOpenNotifications: { showingNotifications = true },
+                        onOpenFriends: { showingFriends = true },
+                        onOpenLeaderboard: { showingLeaderboard = true },
+                        onOpenProfile: { showingProfile = true },
+                        onOpenStreakInfo: { showingStreakInfo = true },
+                        onOpenXpInfo: { showingXpInfo = true },
+                        onOpenFeedSettings: { showingFeedSettings = true }
+                    )
+                    .padding(.vertical, 8)
                 }
             }
         }

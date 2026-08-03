@@ -44,11 +44,13 @@ struct QuizCardView: View {
             if let result {
                 resultView(result)
             }
-
-            Spacer(minLength: 0)
         }
         .padding()
-        .frame(maxHeight: .infinity, alignment: .top)
+        // Mirrors QuizView.tsx's `justify-center` (unlike LearnCard.tsx's
+        // `justify-end` for the plain reading card) — vertically centered
+        // rather than pinned to the top with a trailing Spacer eating the
+        // leftover room, flagged live by the user as looking off.
+        .frame(maxHeight: .infinity, alignment: .center)
         .clipped()
         // No boxed panel — FeedView paints one shared per-category backdrop
         // behind this and every other slide kind, matching QuizView.tsx's
