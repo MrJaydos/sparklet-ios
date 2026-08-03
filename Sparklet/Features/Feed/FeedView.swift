@@ -12,6 +12,7 @@ import SwiftUI
 // claiming, not just about what dwellMs it sends.
 struct FeedView: View {
     let authSession: AuthSession
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @StateObject private var viewModel: FeedViewModel
     @StateObject private var statsViewModel: StatsHeaderViewModel
     @StateObject private var notificationsViewModel: NotificationsViewModel
@@ -20,6 +21,12 @@ struct FeedView: View {
     @StateObject private var leaderboardViewModel: LeaderboardViewModel
     @StateObject private var profileViewModel: ProfileViewModel
     @State private var visibleCardId: String?
+    // Only used for the programmatic "Keep going"-style jumps below —
+    // .scrollPosition(id:) alone is a well-known rough edge for exact
+    // page-snapping when the id is set from code rather than a drag
+    // gesture (see advanceToNextItem's comment); ScrollViewReader.scrollTo
+    // is the more reliable API for that specific case.
+    @State private var scrollProxy: ScrollViewProxy?
     @State private var isRefreshing = false
     @State private var showingNotifications = false
     @State private var showingFriends = false
@@ -28,6 +35,7 @@ struct FeedView: View {
     @State private var showingProfile = false
     @State private var showingStreakInfo = false
     @State private var showingXpInfo = false
+    @State private var showingFeedSettings = false
 
     init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
@@ -44,6 +52,7 @@ struct FeedView: View {
         VStack(spacing: 0) {
             StatsHeaderView(
                 profile: statsViewModel.profile,
+                topicLabel: topicLabel,
                 isRefreshing: isRefreshing,
                 onRefresh: { Task { await refresh() } },
                 unreadNotifications: notificationsViewModel.unreadCount,
@@ -52,29 +61,34 @@ struct FeedView: View {
                 onOpenLeaderboard: { showingLeaderboard = true },
                 onOpenProfile: { showingProfile = true },
                 onOpenStreakInfo: { showingStreakInfo = true },
-                onOpenXpInfo: { showingXpInfo = true }
+                onOpenXpInfo: { showingXpInfo = true },
+                onOpenFeedSettings: { showingFeedSettings = true }
             )
             .padding(.vertical, 8)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(viewModel.items) { item in
-                        itemView(item)
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                            .containerRelativeFrame(.vertical)
-                            .id(item.id)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(viewModel.items) { item in
+                            itemView(item)
+                                .padding(.horizontal)
+                                .padding(.vertical, 8)
+                                .containerRelativeFrame(.vertical)
+                                .id(item.id)
+                        }
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
+                .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
+                // end the user can see coming — wrong signal for a feed
+                // designed to keep loading indefinitely (see FeedViewModel's
+                // allowRepeats-based pagination).
+                .scrollContentBackground(.hidden)
+                .scrollTargetBehavior(.paging)
+                .defaultScrollAnchor(.top)
+                .scrollPosition(id: $visibleCardId)
+                .onAppear { scrollProxy = proxy }
             }
-            .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
-            // end the user can see coming — wrong signal for a feed
-            // designed to keep loading indefinitely (see FeedViewModel's
-            // allowRepeats-based pagination).
-            .scrollContentBackground(.hidden)
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $visibleCardId)
         }
         .background(Theme.background)
         .overlay {
@@ -114,6 +128,20 @@ struct FeedView: View {
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView(viewModel: profileViewModel, authSession: authSession)
+        }
+        .sheet(isPresented: $showingFeedSettings) {
+            FeedSettingsView(
+                authSession: authSession,
+                purchaseManager: purchaseManager,
+                selected: viewModel.selectedCategorySlugs,
+                onApply: { slugs in
+                    await viewModel.applyCategoryFilter(slugs)
+                    // A filter change replaces the batch outright (same
+                    // "reset means reset" semantics as refresh() below) —
+                    // reseed so read-tracking picks up on the new item 1.
+                    visibleCardId = viewModel.items.first?.id
+                }
+            )
         }
         .fullScreenCover(isPresented: $showingOnboarding) {
             OnboardingView(viewModel: onboardingViewModel, onComplete: { showingOnboarding = false })
@@ -177,6 +205,15 @@ struct FeedView: View {
         return viewModel.items.first { $0.id == visibleCardId }
     }
 
+    // Mirrors Feed.tsx's topicLabel — simplified to a count rather than the
+    // web's space-joined category icons, since showing icons here would mean
+    // this view also holding its own copy of the categories list just for
+    // that, on top of the one FeedSettingsView already fetches when opened.
+    private var topicLabel: String {
+        let count = viewModel.selectedCategorySlugs.count
+        return count == 0 ? "🎲" : "\(count)"
+    }
+
     // Shared by every XP-awarding path (read-tracking above, and each
     // quiz/guess/misconception/explain onXp closure below) — updates the
     // header, then checks whether this specific update just crossed the
@@ -188,6 +225,23 @@ struct FeedView: View {
     private func applyXpAndCheckGoal(_ xp: XpSummary) {
         if statsViewModel.apply(xp), DailyCardGoal.markReachedIfNeededToday() {
             viewModel.markGoalReached()
+            // markGoalReached() inserts a new .goalReached item into
+            // `items`, and it always lands at/right after whatever card the
+            // user is currently on (goalReachedAfter is a snapshot of
+            // sessionViews taken at this exact moment) — i.e. exactly the
+            // position that's already on screen. That live insertion shifts
+            // everything after it down by one page, and confirmed live: the
+            // paging ScrollView doesn't reliably keep its offset aligned to
+            // `visibleCardId` through that shift on its own, producing the
+            // same half-settled/cut-off page glitch advanceToNextItem hit
+            // (see its comment) — except here it happens automatically,
+            // with no button tap involved. Re-snapping to the same id right
+            // after the insertion forces the offset to match wherever that
+            // id actually sits post-shift, instead of leaving the
+            // pre-shift pixel offset in place.
+            if let visibleCardId {
+                scrollProxy?.scrollTo(visibleCardId, anchor: .top)
+            }
         }
     }
 
@@ -200,7 +254,8 @@ struct FeedView: View {
               let index = viewModel.items.firstIndex(where: { $0.id == visibleCardId }),
               index + 1 < viewModel.items.count
         else { return }
-        withAnimation { self.visibleCardId = viewModel.items[index + 1].id }
+        let nextId = viewModel.items[index + 1].id
+        self.visibleCardId = nextId
     }
 
     // Mirrors the `inviteUrl` prop Feed.tsx receives from its server-rendered

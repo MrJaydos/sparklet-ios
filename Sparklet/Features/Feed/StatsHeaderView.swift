@@ -5,6 +5,9 @@ import SwiftUI
 // answers a different question and should never be merged into this row.
 struct StatsHeaderView: View {
     let profile: ProfileResponse?
+    // Mirrors Feed.tsx's topicLabel button — the topic filter trigger sits
+    // first/leftmost in the web's header too, ahead of streak/XP.
+    let topicLabel: String
     // Explicit refresh affordance instead of `.refreshable` — see the
     // comment on FeedView's refresh button for why.
     let isRefreshing: Bool
@@ -16,19 +19,23 @@ struct StatsHeaderView: View {
     let onOpenProfile: () -> Void
     let onOpenStreakInfo: () -> Void
     let onOpenXpInfo: () -> Void
+    let onOpenFeedSettings: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             if let profile {
+                topicButton
                 Button(action: onOpenStreakInfo) {
                     Label("\(profile.currentStreak)", systemImage: "flame.fill")
                 }
                 .foregroundStyle(.orange)
                 Button(action: onOpenXpInfo) {
-                    Label("\(profile.xpToday)/\(profile.xpGoal) XP", systemImage: "star.fill")
+                    Label("\(profile.xpToday)/\(profile.xpGoal)", systemImage: "star.fill")
                 }
                 .foregroundStyle(.yellow)
-                Spacer()
+                .lineLimit(1)
+                .fixedSize()
+                Spacer(minLength: 4)
                 profileButton
                 leaderboardButton
                 friendsButton
@@ -40,9 +47,27 @@ struct StatsHeaderView: View {
                 Spacer()
             }
         }
-        .font(.subheadline.bold())
+        .font(.caption.bold())
         .foregroundStyle(Theme.textPrimary)
         .padding(.horizontal)
+    }
+
+    // Emoji-only for "no filter" / a bare count when filtered — the web's
+    // own label (space-joined category icons) needs a categories list this
+    // view doesn't otherwise hold; a short label also just fits this row
+    // better now that it's sharing space with streak/XP and 5 icons (a
+    // spelled-out "Everything" wrapped the XP label onto two lines here,
+    // confirmed live).
+    private var topicButton: some View {
+        Button(action: onOpenFeedSettings) {
+            Text("\(topicLabel) ▾")
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Theme.panelAlt, in: Capsule())
+        }
+        .foregroundStyle(Theme.textPrimary)
     }
 
     private var refreshButton: some View {

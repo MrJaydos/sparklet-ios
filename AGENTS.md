@@ -7,6 +7,76 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Real app icon added, and five bugs/gaps fixed from live user feedback
+(2026-08-01)**:
+- **App icon**: the project had no `AppIcon` configured at all (no
+  `.xcassets`, no `ASSETCATALOG_COMPILER_APPICON_NAME`) — shipped with the
+  blank Xcode placeholder. Fixed with the real Sparklet brand mark (the
+  violet sparkle already used for the web's PWA icons, `sparklet` repo's
+  `public/icon-512.png`), upscaled to 1024×1024 and stripped of its alpha
+  channel (required for the single-size App Store icon). Verified live:
+  the real icon renders correctly, masked with rounded corners, on the
+  simulator home screen.
+- **Explain-it-back "I don't know" showed no information** — the backend's
+  `feedback` string for a skip is deliberately generic ("No worries —
+  here's a reminder..."; see `src/app/api/explain/[cardId]/answer/
+  route.ts`), and the web pairs it with the card's own body text in a
+  separate UI state; `ExplainCardView` was showing only the generic
+  `feedback` string alone. Fixed by tracking whether the current result
+  came from a skip (`wasSkipped`) and showing `prompt.body` in that case,
+  matching `ExplainView.tsx`'s "revealed" state.
+- **"Read more" truncated cards well before the page was actually full**,
+  leaving large dead gaps of blank space below it — `maxBodyLines` was a
+  flat guess (6 lines with an image, 10 without) rather than a real
+  measurement. Replaced with a dynamic calculation: `CardView` now
+  measures its own real height (extending the existing `cardWidth`
+  GeometryReader to also capture `cardHeight`), then computes exactly how
+  many body lines fit after the chip/image/title/"Read more"-reserve/
+  source have taken their real (UIKit-measured, not guessed) share.
+  Verified live: short-titled/imageless cards that used to truncate now
+  render in full; a forced very-long body still truncates cleanly with no
+  overflow past the panel edge.
+- **No way to filter the feed by topic** — `GET /api/feed`'s `categories`
+  param and `FeedAPI.fetchFeed(categorySlugs:)` already existed
+  client-side with zero UI to drive them. New `FeedSettingsView` (mirrors
+  `CategorySheet.tsx`'s combined "Your feed" sheet: topic multi-select +
+  reading depth + daily goal, all three in one place like the web bundles
+  them) reachable from a new topic-filter pill in `StatsHeaderView`
+  (leftmost in the row, mirroring the web's own placement — shortened to
+  an emoji/count rather than the web's space-joined category icons, since
+  a spelled-out label wrapped the XP label onto two lines once the header
+  had 6 elements instead of 5, confirmed live). New `CategoryPreference`
+  (mirrors `sparklet.categories`) and `FeedViewModel.applyCategoryFilter`
+  (persists the filter, full-reset reload, best-effort re-syncs
+  `POST /api/interests`). `DailyCardGoal` and `DepthPreference` — both
+  already had backing logic from earlier passes but no UI to change them
+  — are now actually adjustable through this same sheet. Verified live
+  end-to-end: selecting "Space" and applying genuinely filtered the real
+  production feed to only Space-category cards; reading depth correctly
+  shows Deep/Extra Deep as locked for a non-premium account; the daily
+  goal chips correctly highlight the active value.
+- **Scroll glitch after programmatic feed navigation**: tapping "Keep
+  going anyway"/"Maybe later" on the checkin/invite/goalReached slides
+  (and, separately, the automatic insertion of a `.goalReached` slide
+  while already sitting on the triggering card) could leave the next page
+  mis-snapped — image/category chip cut off at the top, next item peeking
+  in at the bottom. Investigated extensively (7 different mitigations
+  tried: default/no animation, `.scrollPosition(id:)` anchor variants,
+  `ScrollViewReader.scrollTo`, sequential pre-settling, a corrective
+  re-snap, `.defaultScrollAnchor(.top)`) — confirmed via a debug harness
+  that this reproduces even for a plain quiz→card jump with no recap
+  slide involved at all, meaning it's a general SwiftUI limitation with
+  programmatic `.scrollPosition(id:)` writes under
+  `.scrollTargetBehavior(.paging)`, not something specific to the new
+  slide kinds — the same underlying issue as the rare manual-swipe-reversal
+  glitch noted below (#6), now confirmed far more general and easily
+  reproducible than that note assumed. **Not fixed** — a full fix likely
+  means replacing the paging `ScrollView` with a UIKit-backed page view,
+  out of scope for this pass. The best available mitigation (a plain
+  `visibleCardId` write, no animation, `.defaultScrollAnchor(.top)`) is
+  in place; it still navigates to the right item, just occasionally
+  mis-snapped, matching #6's existing "should self-correct" character.
+
 **Remaining feed slide kinds built (checkin/invite/goalReached),
 2026-08-01** — the last of `Feed.tsx`'s non-card slide kinds this client
 didn't have, closing the "Not scoped into this pass" note in the ads
@@ -898,18 +968,23 @@ UI that matches them rather than fights them:
    consent dialog ("'Sparklet' Wants to Use 'sparkletapp.com' to Sign In")
    appeared correctly and the browser sheet loaded the real login page; no
    scheme-mismatch failure.
-6. **Observed once 2026-07-29, likely a testing artifact, not a real bug**:
-   after many rapid, robotic backward/forward paging swipes in immediate
-   succession (automated simulator testing, not how a real user swipes), a
-   card rendered with its leading ~1-2 characters and category emoji
-   clipped off — confirmed in a full, uncropped Mac screenshot, so it was a
-   real on-device rendering state, not a screenshot-crop mistake. A plain
-   app restart (`simctl terminate` + `launch`) fully cleared it; the very
-   next card rendered perfectly. Plausible cause: the paging `ScrollView`
-   landed in a slightly-off-page scroll offset when reversed direction
-   faster than its snap animation could settle. Worth a light on-device
-   sanity check (a few quick manual swipe-reversals) but not worth chasing
-   further from this one occurrence under artificial conditions.
+6. **No longer just a rare artifact — confirmed general and reproducible
+   2026-08-01, still unfixed.** Originally observed once on 2026-07-29
+   after rapid robotic swipe-reversals and assumed to be a testing-only
+   edge case (a plain app restart cleared it). Re-surfaced live by the
+   user via the checkin/invite/goalReached slides' "Keep going anyway"
+   buttons, and confirmed via a debug harness (see Status above) to
+   reproduce for ANY programmatic `.scrollPosition(id:)` write — even a
+   plain quiz→card jump with no recap slide involved — not something
+   specific to rapid manual swiping. 7 mitigations tried (animation
+   variants, scroll anchors, `ScrollViewReader.scrollTo`, sequential
+   pre-settling, a corrective re-snap), none fully resolve it; it's a
+   general SwiftUI limitation with `.scrollTargetBehavior(.paging)` under
+   programmatic navigation. A full fix likely means replacing the paging
+   `ScrollView` with a UIKit-backed page view — a substantial rewrite, out
+   of scope so far. The current mitigation (plain non-animated write +
+   `.defaultScrollAnchor(.top)`) still navigates to the right item, just
+   occasionally mis-snapped.
 7. ~~Invite Universal Links: AASA file not published~~ **AASA file
    published and live in production 2026-08-01** — see Status above. Only
    remaining step is verifying with a real device that tapping a

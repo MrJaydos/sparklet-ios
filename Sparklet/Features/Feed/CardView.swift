@@ -40,14 +40,71 @@ struct CardView: View {
     @State private var showingFullCard = false
     @State private var relatedRoute: RelatedCardRoute?
     @State private var cardWidth: CGFloat = 0
+    @State private var cardHeight: CGFloat = 0
     // Fire-once guard for the auto-apply effect below — same "per-view, so
     // a fast scroll doesn't fire a generation for every card" semantics as
     // the web's observer.disconnect() after its first trigger.
     @State private var hasAutoAppliedDepthPreference = false
 
-    // A card fills exactly one page and a photo eats into that budget, so a
-    // card with an image gets a tighter line limit than a text-only one.
-    private var maxBodyLines: Int { card.imageUrl != nil ? 6 : 10 }
+    // How many lines of body text actually fit in whatever vertical room is
+    // left on this specific card, after the chip/image/title/"Read more"
+    // reserve/source have taken their real (measured, not guessed) share —
+    // replaces an earlier flat 6-with-image/10-without guess that truncated
+    // short-titled or imageless cards well before the page was actually
+    // full, leaving a large dead gap below "Read more" (flagged live by the
+    // user). Falls back to that same conservative guess for the one frame
+    // before cardWidth/cardHeight have been measured.
+    private var maxBodyLines: Int {
+        guard cardWidth > 0, cardHeight > 0 else {
+            return card.imageUrl != nil ? 6 : 10
+        }
+        let outerPadding: CGFloat = 32 // top+bottom .padding()
+        let vSpacing: CGFloat = 12 // VStack(spacing: 12)
+        // 32 = horizontal .padding(); 56 = clearance for the action rail —
+        // same width every other element in this VStack renders at.
+        let contentWidth = max(cardWidth - 32 - 56, 0)
+
+        var otherHeights: [CGFloat] = []
+
+        let chipFont = UIFont.preferredFont(forTextStyle: .caption1)
+        otherHeights.append(chipFont.lineHeight + 10) // chip's own .padding(.vertical, 5) × 2
+
+        if card.imageUrl != nil {
+            otherHeights.append(180) // matches the AsyncImage's .frame(height: 180)
+        }
+
+        let titleFont = Self.boldFont(.title3)
+        otherHeights.append((displayedTitle as NSString).boundingRect(
+            with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: titleFont],
+            context: nil
+        ).height)
+
+        // Always reserved, whether or not "Read more" ends up showing —
+        // its own visibility is the very thing this calculation decides,
+        // so it can't be measured after the fact.
+        otherHeights.append(Self.boldFont(.footnote).lineHeight)
+
+        if card.sources.first != nil {
+            otherHeights.append(UIFont.preferredFont(forTextStyle: .caption1).lineHeight)
+        }
+
+        // One VStack gap between every adjacent pair of elements, including
+        // the trailing Spacer — (otherHeights + body + Spacer) elements,
+        // so (that count - 1) gaps.
+        let gaps = CGFloat(otherHeights.count + 1)
+        let used = outerPadding + otherHeights.reduce(0, +) + gaps * vSpacing
+        let available = max(cardHeight - used, 0)
+        let bodyFont = UIFont.preferredFont(forTextStyle: .body)
+        return max(Int((available / bodyFont.lineHeight).rounded(.down)), 2)
+    }
+
+    private static func boldFont(_ style: UIFont.TextStyle) -> UIFont {
+        let base = UIFont.preferredFont(forTextStyle: style)
+        let descriptor = base.fontDescriptor.withSymbolicTraits(.traitBold) ?? base.fontDescriptor
+        return UIFont(descriptor: descriptor, size: base.pointSize)
+    }
 
     // Whether maxBodyLines actually cut something off, so "Read more" only
     // shows up when there's something to read more of. A SwiftUI
@@ -157,7 +214,10 @@ struct CardView: View {
         }
         .background(
             GeometryReader { geo in
-                Color.clear.onAppear { cardWidth = geo.size.width }
+                Color.clear.onAppear {
+                    cardWidth = geo.size.width
+                    cardHeight = geo.size.height
+                }
             }
         )
         .background(Theme.panel, in: RoundedRectangle(cornerRadius: 16))

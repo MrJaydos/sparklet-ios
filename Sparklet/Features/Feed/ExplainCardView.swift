@@ -12,6 +12,7 @@ struct ExplainCardView: View {
 
     @State private var text = ""
     @State private var result: ExplainAnswerResponse?
+    @State private var wasSkipped = false
     @State private var isSubmitting = false
 
     private var canSubmit: Bool { text.count >= 10 && text.count <= 600 }
@@ -64,6 +65,7 @@ struct ExplainCardView: View {
                     isSubmitting = true
                     Task {
                         if let response = await onSkip() {
+                            wasSkipped = true
                             result = response
                             onXp(response.xp)
                         }
@@ -100,11 +102,31 @@ struct ExplainCardView: View {
 
     private func resultView(_ result: ExplainAnswerResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(result.feedback)
-                .font(.callout)
-                .foregroundStyle(Theme.textSecondary)
-            if result.xp.awarded > 0 {
-                XpAwardChip(xp: result.xp)
+            if wasSkipped {
+                // Mirrors ExplainView.tsx's separate "revealed" state: the
+                // backend's `feedback` string for a skip is deliberately
+                // generic ("No worries — here's a reminder...", see
+                // src/app/api/explain/[cardId]/answer/route.ts) — it's not
+                // meant to be the payoff by itself. The web shows the card's
+                // own body text instead, already known client-side via
+                // `prompt`, not by re-fetching anything. An earlier iOS pass
+                // rendered `result.feedback` unconditionally here, which for
+                // a skip showed only that generic line and nothing else —
+                // flagged live by the user tapping "I don't know" and seeing
+                // no actual information.
+                Text("📖 Here's a reminder")
+                    .font(.caption.bold())
+                    .foregroundStyle(Theme.textTertiary)
+                Text(prompt.body)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
+            } else {
+                Text(result.feedback)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
+                if result.xp.awarded > 0 {
+                    XpAwardChip(xp: result.xp)
+                }
             }
         }
     }

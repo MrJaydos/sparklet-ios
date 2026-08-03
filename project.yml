@@ -45,6 +45,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sparklet.ios
         DEVELOPMENT_TEAM: K4JYC7UP3A
         ENABLE_PREVIEWS: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     # All Info.plist keys are set here as raw plist entries rather than via
     # INFOPLIST_KEY_* build settings — mixing the two mechanisms with an
     # explicit `info.path` file (below) is a real ambiguity in

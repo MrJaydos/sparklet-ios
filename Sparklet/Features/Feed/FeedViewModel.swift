@@ -63,9 +63,16 @@ final class FeedViewModel: ObservableObject {
     private var showInviteCard = false
     private static let inviteSessionCountKey = "sparklet.inviteSessionCount"
 
+    // The topic filter — mirrors Feed.tsx's `selected` state, persisted via
+    // CategoryPreference (its own `sparklet.categories` localStorage
+    // equivalent). Empty means "Random / Everything."
+    @Published private(set) var selectedCategorySlugs: [String]
+    private let onboardingAPI = OnboardingAPI()
+
     init(authSession: AuthSession, purchaseManager: PurchaseManager) {
         self.authSession = authSession
         self.purchaseManager = purchaseManager
+        self.selectedCategorySlugs = CategoryPreference.get()
         let defaults = UserDefaults.standard
         let n = defaults.integer(forKey: Self.inviteSessionCountKey) + 1
         defaults.set(n, forKey: Self.inviteSessionCountKey)
@@ -75,6 +82,22 @@ final class FeedViewModel: ObservableObject {
     func loadIfNeeded() async {
         guard cards.isEmpty else { return }
         await load()
+    }
+
+    // Mirrors Feed.tsx's applyCategories: persist the new filter, then a
+    // full reset load (a topic change means "start over," not "append") —
+    // matching the same reset semantics `load()` already documents below.
+    // Also best-effort re-syncs POST /api/interests when the filter is
+    // non-empty, so persisted interests (nudge targeting, new-user boost)
+    // stay aligned with whatever the user actually filters to, not just
+    // their original onboarding picks — same as the web.
+    func applyCategoryFilter(_ slugs: [String]) async {
+        selectedCategorySlugs = slugs
+        CategoryPreference.set(slugs)
+        await load()
+        if !slugs.isEmpty {
+            try? await onboardingAPI.submitInterests(categorySlugs: slugs, token: authSession.token)
+        }
     }
 
     // Initial load and pull-to-refresh both replace the batch outright —
@@ -90,12 +113,16 @@ final class FeedViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            var response = try await api.fetchFeed(take: 10, token: authSession.token)
+            var response = try await api.fetchFeed(
+                categorySlugs: selectedCategorySlugs, take: 10, token: authSession.token
+            )
             if response.exhausted, Self.isEmpty(response) {
                 // A returning account that's already seen every card and has
                 // no due reviews — fall straight back to repeats rather than
                 // opening on an empty feed.
-                response = try await api.fetchFeed(take: 10, allowRepeats: true, token: authSession.token)
+                response = try await api.fetchFeed(
+                    categorySlugs: selectedCategorySlugs, take: 10, allowRepeats: true, token: authSession.token
+                )
             }
             apply(response, append: false)
         } catch APIError.unauthorized {
@@ -117,6 +144,7 @@ final class FeedViewModel: ObservableObject {
         defer { isLoading = false }
         do {
             var response = try await api.fetchFeed(
+                categorySlugs: selectedCategorySlugs,
                 take: 10,
                 allowRepeats: exhausted,
                 excludeIds: recentExcludeIds,
@@ -132,6 +160,7 @@ final class FeedViewModel: ObservableObject {
                 // nothing new got appended — there'd be nothing to trigger a
                 // second attempt.
                 response = try await api.fetchFeed(
+                    categorySlugs: selectedCategorySlugs,
                     take: 10,
                     allowRepeats: true,
                     excludeIds: recentExcludeIds,
