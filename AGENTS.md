@@ -7,10 +7,38 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Reverted the bottom-peek fix — it caused a worse regression, caught live
+by the user (2026-08-04)**: "When you scroll to a quiz card you can still
+see the bottom buttons from the last card up the top of the screen behind
+the battery." Reproduced via the same forced-`visibleCardId` debug
+technique used throughout this project (tried both a raw write and
+`scrollProxy.scrollTo`, same result either way): the PREVIOUS item's action
+rail (share/report icons) rendered at the top of the screen, overlapping
+the status bar, on a quiz slide reached after the previous day's
+`.safeAreaInset(edge: .top)` + `.ignoresSafeArea(edges: .bottom)` header
+restructuring (see below). Ran a controlled A/B test — same debug jump
+technique, only the header structure changed: the plain
+`VStack{header; ScrollView}` structure (this session's revert) never showed
+the artifact; the `safeAreaInset`/`ignoresSafeArea` structure showed it on
+every attempt. Reverted back to the plain `VStack` — the header sharing
+layout space with the `ScrollView` is what keeps `.scrollTargetBehavior(
+.paging)`'s page-height and each item's `.containerRelativeFrame(.vertical)`
+height in agreement; decoupling them (to fix the smaller ~18pt bottom-peek
+cosmetic issue) broke that agreement in a way that showed up as a real UI
+element bleeding across page boundaries — a materially worse bug than the
+one it fixed. The bottom peek is back and, per the existing "Still open" #6
+entry below, is a known, accepted, lower-severity SwiftUI paging quirk (a
+full fix needs a UIKit-backed page view, out of scope). All 27
+`SparkletTests` pass (unchanged — layout-only revert, no logic change).
+
 **Two more live-flagged fixes, same session (2026-08-03)**: "I don't like
 the next card poking out. I also think the quiz cards and the rest of them
 should be centered rather than [top] aligned."
-- **Next-item peek at the bottom, fixed.** Confirmed via screenshot +
+- **Next-item peek at the bottom, fixed.** ~~Fixed~~ **Reverted 2026-08-04
+  — see Status above.** The fix below caused a worse regression (the
+  previous item's action rail bleeding into the top of the screen on a
+  quiz slide); the peek is back until a fix is found that doesn't
+  reintroduce that. Confirmed via screenshot +
   pixel sampling this was a real, consistent ~18pt sliver of the next
   item's category chip visible at the bottom of every page, not the rare
   post-programmatic-jump mis-snap "Still open" #6 already documents —
