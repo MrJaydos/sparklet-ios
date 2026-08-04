@@ -7,6 +7,44 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Ad slide redesigned to match a real card's shape, live-flagged by the
+user after the paging rewrite fixed the top/bottom-bleed bug (2026-08-04)**
+— "The sponsored card is still styled like the old things were. Is it
+possible to have the ad appear like a normal card so it looks like a fact
+for people to learn a bit cheeky like reddit does it." A deliberate
+iOS-only departure from the web, not a port: `AdSlide.tsx` is a plain
+centered "Sponsored" label with no card framing, and this project already
+mirrors that (per the comment `AdSlideView.swift` had until now) — but
+once every other slide went edge-to-edge with a category-tinted gradient
+this session, the ad's boxed panel stood out as visibly different in a way
+the web's own designer-parity reasoning didn't anticipate. Still an
+honest, prominent "Sponsored" label at all times — that's an AdMob policy
+line, not just a style choice — just dressed in the same chip → title →
+body rhythm as `CardView`, with a bit of Reddit-promoted-post-style
+self-aware humor instead of a plain uppercase "SPONSORED" tracking label.
+- `AdSlideView.swift`: dropped the `Theme.panel` boxed background/border;
+  chip now reads "🤑 Sponsored" tinted a fixed gold (`#fbbf24`, not tied to
+  any real category — ads have none), the banner ad unit sits where a
+  card's image would (same 16pt corner radius), followed by a genuine
+  title/body pair ("Okay, this one's an ad" / "Someone paid for you to see
+  this so the next few hundred facts stay free. Back to actual learning
+  right after this.") instead of a blank centered label.
+- `FeedView.currentCategoryColorHex` now returns that same gold hex for
+  `.ad` (previously `nil`, meaning ads showed a flat, colorless backdrop)
+  and `isEdgeToEdge` now includes `.ad` alongside every real card/
+  interactive slide kind.
+- **Verified live** (forced `visibleCardId` to the first ad slide, same
+  technique used throughout this project): chip, gold gradient tint, title,
+  and body all render correctly with no boxed panel. The actual banner
+  creative still doesn't render in this sandbox — pre-existing, already
+  documented under the "Native ads (AdMob) built" entry below (this
+  sandbox's network egress doesn't reach Google's consent-info endpoint, so
+  `canRequestAds` never resolves true here) — not a regression from this
+  change, the same "fail silently" gate as before just correctly renders
+  nothing where the creative would go. All 27 `SparkletTests` pass
+  (unchanged — no new unit-testable logic, a live-rendering redesign like
+  the other card-shape work this session).
+
 **Feed paging rewritten from SwiftUI `ScrollView` to a UIKit-backed
 `UICollectionView`, closing "Still open" #6 for good (2026-08-04)** — after
 the SwiftUI-paging bottom-peek fix from earlier the same day caused a worse

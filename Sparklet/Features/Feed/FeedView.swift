@@ -304,14 +304,22 @@ struct FeedView: View {
         case .guess(let g): return g.category.colorHex
         case .misconception(let m): return m.category.colorHex
         case .explain(let e): return e.category.colorHex
-        case .ad, .checkin, .invite, .goalReached: return nil
+        // Ads get their own fixed "sponsored" gold tint rather than no
+        // color at all — matches AdSlideView's own chip color, and reads
+        // more like a deliberate brand choice than a blank page.
+        case .ad: return "#fbbf24"
+        case .checkin, .invite, .goalReached: return nil
         }
     }
 
     private func isEdgeToEdge(_ item: FeedItem) -> Bool {
         switch item {
-        case .card, .quiz, .reviewQuiz, .guess, .misconception, .explain: return true
-        case .ad, .checkin, .invite, .goalReached: return false
+        // Ads now use the same full-bleed card shape as every real card —
+        // flagged live by the user as looking out of place boxed while
+        // everything else went edge-to-edge (see AdSlideView's own comment
+        // for the full redesign).
+        case .card, .quiz, .reviewQuiz, .guess, .misconception, .explain, .ad: return true
+        case .checkin, .invite, .goalReached: return false
         }
     }
 
