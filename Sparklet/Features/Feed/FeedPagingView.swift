@@ -23,6 +23,14 @@ struct FeedPagingView<Content: View>: UIViewRepresentable {
     // load()/refresh()/filter-apply/reconcile reseeds) the same way it used
     // to call scrollProxy?.scrollTo(id:anchor:).
     let onProxyReady: (FeedPagingProxy) -> Void
+    // A plain UIRefreshControl on this collection view, unlike the old
+    // SwiftUI ScrollView + .scrollTargetBehavior(.paging) combination (see
+    // FeedView's now-removed refresh button comment) — isPagingEnabled only
+    // affects snap behavior once a drag ends, not the initial overscroll
+    // drag itself, so UIRefreshControl's own pull gesture never had a
+    // conflict to begin with here. Requested directly by the user in favor
+    // of the header's explicit refresh button, which is now gone.
+    let onRefresh: () async -> Void
     @ViewBuilder let content: (FeedItem, Bool) -> Content
 
     func makeUIView(context: Context) -> UICollectionView {
@@ -39,7 +47,13 @@ struct FeedPagingView<Content: View>: UIViewRepresentable {
         collectionView.delegate = context.coordinator
         collectionView.register(FeedPagingCell.self, forCellWithReuseIdentifier: FeedPagingCell.reuseIdentifier)
 
+        let refreshControl = UIRefreshControl()
+        refreshControl.tintColor = .white
+        refreshControl.addTarget(context.coordinator, action: #selector(Coordinator.handleRefresh), for: .valueChanged)
+        collectionView.refreshControl = refreshControl
+
         let coordinator = context.coordinator
+        coordinator.onRefresh = onRefresh
         let dataSource = UICollectionViewDiffableDataSource<Int, FeedItem>(collectionView: collectionView) { collectionView, indexPath, item in
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FeedPagingCell.reuseIdentifier, for: indexPath) as! FeedPagingCell
             cell.configure {
@@ -84,6 +98,7 @@ struct FeedPagingView<Content: View>: UIViewRepresentable {
         let coordinator = context.coordinator
         coordinator.content = content
         coordinator.currentVisibleId = visibleCardId
+        coordinator.onRefresh = onRefresh
 
         let old = coordinator.lastItems
         guard items != old else { return }
@@ -120,8 +135,16 @@ struct FeedPagingView<Content: View>: UIViewRepresentable {
         var dataSource: UICollectionViewDiffableDataSource<Int, FeedItem>?
         var content: ((FeedItem, Bool) -> Content)?
         var onVisibleIdChange: ((String?) -> Void)?
+        var onRefresh: (() async -> Void)?
         var currentVisibleId: String?
         var lastItems: [FeedItem] = []
+
+        @objc func handleRefresh() {
+            Task { @MainActor in
+                await onRefresh?()
+                self.collectionView?.refreshControl?.endRefreshing()
+            }
+        }
 
         func scrollTo(id: String, animated: Bool) {
             guard let item = lastItems.first(where: { $0.id == id }),

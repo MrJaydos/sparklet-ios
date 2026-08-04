@@ -70,8 +70,7 @@ struct FeedView: View {
                 StatsHeaderView(
                     profile: statsViewModel.profile,
                     topicLabel: topicLabel,
-                    isRefreshing: isRefreshing,
-                    onRefresh: { Task { await refresh() } },
+                    hasCategoryFilter: !viewModel.selectedCategorySlugs.isEmpty,
                     unreadNotifications: notificationsViewModel.unreadCount,
                     onOpenNotifications: { showingNotifications = true },
                     onOpenFriends: { showingFriends = true },
@@ -95,7 +94,8 @@ struct FeedView: View {
                 FeedPagingView(
                     items: viewModel.items,
                     visibleCardId: $visibleCardId,
-                    onProxyReady: { pagingProxy = $0 }
+                    onProxyReady: { pagingProxy = $0 },
+                    onRefresh: { await refresh() }
                 ) { item, isVisible in
                     // Cards and every interactive slide kind that carries a
                     // category (quiz/guess/misconception/explain) go
@@ -381,13 +381,16 @@ struct FeedView: View {
         AppConfig.apiBaseURL.appendingPathComponent("invite/\(statsViewModel.profile?.id ?? "")")
     }
 
-    // An explicit button instead of `.refreshable`: this feed pages
-    // vertically (`.scrollTargetBehavior(.paging)`), and simulator testing
-    // on 2026-07-29 showed a deliberate pull-down at the true top of
-    // content produces no rubber-band or refresh spinner at all — paging
-    // fully consumes the overscroll gesture before SwiftUI's refresh
-    // control ever sees it. Rather than fight that, this button gives the
-    // same "give me a fresh read" action a guaranteed-reachable affordance.
+    // Previously an explicit header button rather than real pull-to-refresh:
+    // the SwiftUI ScrollView + .scrollTargetBehavior(.paging) this feed used
+    // to page with consumed the overscroll gesture before SwiftUI's own
+    // refresh control ever saw it (confirmed live 2026-07-29). Once the feed
+    // moved to a UIKit UICollectionView (see FeedPagingView.swift),
+    // UIRefreshControl's pull gesture had no such conflict to begin with —
+    // isPagingEnabled only affects snap behavior once a drag ends, not the
+    // overscroll drag itself — so real pull-to-refresh is wired there
+    // instead, and the header button (requested removed in favor of it) is
+    // gone.
     private func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true

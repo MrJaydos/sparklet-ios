@@ -7,6 +7,49 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Real pull-to-refresh + a more obvious category-filter pill, both
+live-flagged by the user (2026-08-04)** — "The pull down to refresh the
+feed also doesn't work or doesn't do anything" / "Id rather that then the
+refresh button in the top bar" / "I think the categories button needs to
+be a bit more obvious when some categories are selected."
+- **Pull-to-refresh**: previously an explicit header button, because the
+  old SwiftUI `ScrollView` + `.scrollTargetBehavior(.paging)` consumed the
+  overscroll drag before SwiftUI's own `.refreshable` ever saw it
+  (confirmed live 2026-07-29, documented on `FeedView.refresh()`). Once
+  this session's UIKit paging rewrite landed, that conflict no longer
+  applies — `isPagingEnabled` only affects snap behavior once a drag ends,
+  not the overscroll drag itself — so a plain `UIRefreshControl` on the
+  `UICollectionView` (`FeedPagingView.swift`) has nothing to fight. Wired
+  its `.valueChanged` action to the same `FeedView.refresh()` the old
+  button called. The header button is gone (`StatsHeaderView` dropped
+  `isRefreshing`/`onRefresh` and `refreshButton` entirely) — asked for
+  directly by the user in favor of the gesture, not a discovery made here.
+  **Verified live**: rather than trust the standard `UIRefreshControl`
+  target-action pattern on faith (this session's paging rewrite already
+  turned up two non-obvious UIKit bugs invisible from reading the code),
+  triggered it via `refreshControl.sendActions(for: .valueChanged)` — the
+  exact same UIControl action-dispatch path a real drag uses, just without
+  the manual drag — and confirmed via a temporary on-screen counter that
+  `onRefresh` fired and `refresh()` (a real network round trip) completed,
+  landing on a genuinely fresh card afterward.
+- **Category-filter pill**: `StatsHeaderView`'s topic pill used the same
+  neutral gray fill regardless of whether a filter was active, differing
+  only in its text ("🎲" vs a bare count) — easy to miss. Gained a new
+  `hasCategoryFilter: Bool` (computed in `FeedView` from
+  `!viewModel.selectedCategorySlugs.isEmpty`) driving an accent-tinted
+  fill + border when active, instead of only the label changing. The
+  web's own version doesn't need this (its label is a real space-joined
+  list of category icons, self-evidently "something is selected"), but
+  this client's count-only label reads too easily as "just a button"
+  without it. Verified live against the real signed-in account, which (via
+  this session's earlier cross-device category-sync fix) had picked up 4
+  categories selected from the user's own real usage on their phone
+  between turns — confirms both the accent-pill styling and that the sync
+  fix holds up under genuine live usage, not just the forced-state tests
+  that originally verified it.
+- All 27 `SparkletTests` pass throughout (unchanged — both are
+  live-rendering/wiring changes with no new unit-testable pure logic).
+
 **Ad slide redesigned to match a real card's shape, live-flagged by the
 user after the paging rewrite fixed the top/bottom-bleed bug (2026-08-04)**
 — "The sponsored card is still styled like the old things were. Is it

@@ -8,10 +8,11 @@ struct StatsHeaderView: View {
     // Mirrors Feed.tsx's topicLabel button — the topic filter trigger sits
     // first/leftmost in the web's header too, ahead of streak/XP.
     let topicLabel: String
-    // Explicit refresh affordance instead of `.refreshable` — see the
-    // comment on FeedView's refresh button for why.
-    let isRefreshing: Bool
-    let onRefresh: () -> Void
+    // Whether any topic is actually selected — drives the pill's own
+    // accent styling below, flagged live by the user as not obvious enough
+    // when a filter was active (the pill looked the same either way,
+    // differing only in its text).
+    let hasCategoryFilter: Bool
     let unreadNotifications: Int
     let onOpenNotifications: () -> Void
     let onOpenFriends: () -> Void
@@ -40,7 +41,6 @@ struct StatsHeaderView: View {
                 leaderboardButton
                 friendsButton
                 notificationsButton
-                refreshButton
             } else {
                 Spacer()
                 ProgressView().tint(Theme.textTertiary)
@@ -55,9 +55,14 @@ struct StatsHeaderView: View {
     // Emoji-only for "no filter" / a bare count when filtered — the web's
     // own label (space-joined category icons) needs a categories list this
     // view doesn't otherwise hold; a short label also just fits this row
-    // better now that it's sharing space with streak/XP and 5 icons (a
+    // better now that it's sharing space with streak/XP and 4 icons (a
     // spelled-out "Everything" wrapped the XP label onto two lines here,
-    // confirmed live).
+    // confirmed live). Accent-colored fill + border when a filter is
+    // actually active, rather than the same neutral gray pill either way —
+    // the web's own version doesn't need this (its label is a real
+    // space-joined list of category icons, self-evidently "something is
+    // selected"), but this client's count-only label reads too easily as
+    // "just a button" without it, flagged live by the user.
     private var topicButton: some View {
         Button(action: onOpenFeedSettings) {
             Text("\(topicLabel) ▾")
@@ -65,21 +70,15 @@ struct StatsHeaderView: View {
                 .fixedSize()
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
-                .background(Theme.panelAlt, in: Capsule())
+                .background(
+                    hasCategoryFilter ? Theme.accent.opacity(0.25) : Theme.panelAlt,
+                    in: Capsule()
+                )
+                .overlay(
+                    Capsule().strokeBorder(hasCategoryFilter ? Theme.accentBright : .clear, lineWidth: 1.5)
+                )
         }
-        .foregroundStyle(Theme.textPrimary)
-    }
-
-    private var refreshButton: some View {
-        Button(action: onRefresh) {
-            if isRefreshing {
-                ProgressView().tint(Theme.textTertiary)
-            } else {
-                Image(systemName: "arrow.clockwise")
-            }
-        }
-        .foregroundStyle(Theme.textTertiary)
-        .disabled(isRefreshing)
+        .foregroundStyle(hasCategoryFilter ? Theme.accentText : Theme.textPrimary)
     }
 
     private var notificationsButton: some View {
