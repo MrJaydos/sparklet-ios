@@ -7,6 +7,61 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Magic-link sign-in fixed — structurally could never complete before
+(2026-08-04)**, caught live by the user asking "Send magic link dies? is
+that correct?" after tapping it inside the app. Investigated the full
+chain across both repos before touching code: the backend
+(`sparklet/src/app/login/page.tsx:38-41,51`) correctly encodes the mobile
+completion URL as a `callbackUrl` query param on the emailed magic-link
+itself (via Auth.js's own `nodemailer` provider), and that link correctly
+lands on `/api/auth/mobile-complete` and redirects to
+`sparklet-ios://auth?code=...` exactly as designed — the backend was never
+the problem. The break was entirely client-side: confirming a magic-link
+email means leaving the sandboxed `ASWebAuthenticationSession` browser for
+Mail → Safari, a different process whose eventual `sparklet-ios://auth`
+redirect that session's own `callbackURLScheme` handler can never observe
+(it only fires for redirects *within* that same session). Google/Apple
+OAuth never hit this because those complete without ever leaving the
+session's own tab. `LoginController.requestCode()`'s
+`withCheckedThrowingContinuation` had no timeout either, so it just hung
+forever — matching "dies" exactly.
+- New `AuthCallback.code(from:)` (`Sparklet/Auth/AuthCallback.swift`) —
+  parses the one-time code out of a `sparklet-ios://auth?code=...` URL,
+  mirroring the existing `InviteLink.refId(from:)` pattern exactly (a free
+  function so it's unit-testable independent of the view hierarchy). 3 new
+  tests in `AuthCallbackTests.swift`.
+- `SparkletApp.swift`'s `RootView.onOpenURL` now checks for this case
+  first (both it and `InviteLink` share the same custom scheme) — when the
+  code arrives this way instead of through `ASWebAuthenticationSession`'s
+  own callback, it calls a new `LoginController
+  .completeSignInFromExternalRedirect(code:)`, which cancels the still-open
+  session (otherwise its "Check your email" sheet is left dangling on
+  screen even after the user is actually signed in — `ASWebAuthentication
+  Session` is presented at the window level, not tied to SwiftUI's view
+  lifecycle, so swapping `LoginView` out for `FeedView` underneath it
+  doesn't dismiss it on its own) before exchanging the code the normal way.
+- This required moving `LoginController` ownership from a private `@State`
+  inside `LoginView` up to `RootView` (`LoginView` now takes an injected
+  `controller: LoginController` instead of creating its own), so both the
+  button-driven `signIn()` path and the URL-driven fallback path share the
+  exact same session instance to cancel.
+- **Verification is partial, documented honestly rather than overclaimed**:
+  all 30 `SparkletTests` pass (27 existing + 3 new `AuthCallbackTests`),
+  and the live smoke test via `xcrun simctl openurl
+  "sparklet-ios://auth?code=..."` (the same technique already established
+  for testing `InviteLink` locally) confirmed the app doesn't crash and the
+  existing signed-in session survives the `LoginController`-ownership
+  refactor unaffected — but it could not confirm the fallback branch
+  actually fires, because this iOS/simulator version shows an "Open in
+  Sparklet?" system confirmation sheet before delivering *any*
+  `simctl openurl` custom-scheme open (unlike this project's own prior
+  notes about `InviteLink` testing, written against an earlier OS version
+  that apparently didn't show this), and confirming it needs a tap this
+  sandbox has no Accessibility permission to script. A real end-to-end
+  test (request a magic link, receive the real email, tap it, confirm the
+  app actually signs in) needs the user, on a real device or by tapping
+  through that confirmation sheet in Simulator.app themselves.
+
 **Real pull-to-refresh + a more obvious category-filter pill, both
 live-flagged by the user (2026-08-04)** — "The pull down to refresh the
 feed also doesn't work or doesn't do anything" / "Id rather that then the

@@ -2,7 +2,11 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var authSession: AuthSession
-    @State private var controller = LoginController()
+    // Owned by RootView, not here — the magic-link fallback in
+    // SparkletApp's .onOpenURL needs the exact same controller instance to
+    // cancel its still-open ASWebAuthenticationSession once a code arrives
+    // that way instead (see LoginController.completeSignInFromExternalRedirect).
+    let controller: LoginController
     @State private var isSigningIn = false
     @State private var errorMessage: String?
 

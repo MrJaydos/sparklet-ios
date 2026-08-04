@@ -77,6 +77,26 @@ final class LoginController: NSObject, ASWebAuthenticationPresentationContextPro
         return try await exchangeCode(code)
     }
 
+    // The fallback path for a code that arrives via SparkletApp's
+    // .onOpenURL instead of ASWebAuthenticationSession's own callback — see
+    // AuthCallback.swift's comment for why magic-link sign-in structurally
+    // has to go this way. Cancels the still-open session first: without
+    // this, the "Check your email" sheet from signIn()'s original
+    // requestCode() call is left dangling on screen even after the user is
+    // actually signed in, since ASWebAuthenticationSession is presented at
+    // the window level and isn't automatically dismissed just because
+    // SwiftUI swaps LoginView out for FeedView underneath it. Cancelling it
+    // does resume signIn()'s own suspended continuation with
+    // ASWebAuthenticationSessionError.canceledLogin — harmless in practice,
+    // since by the time that resumes, LoginView (the only thing that would
+    // have shown that error) has already been torn down by RootView
+    // switching to FeedView.
+    func completeSignInFromExternalRedirect(code: String) async throws -> String {
+        session?.cancel()
+        session = nil
+        return try await exchangeCode(code)
+    }
+
     // Step 4: DELETE /api/auth/mobile-session revokes this token specifically
     // — the browser's own cookie session (if any) is untouched.
     func signOut(token: String) async {

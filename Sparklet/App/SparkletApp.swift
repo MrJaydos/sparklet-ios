@@ -39,6 +39,11 @@ private struct RootView: View {
     @EnvironmentObject private var authSession: AuthSession
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @State private var pendingInviteRefId: String?
+    // Owned here rather than inside LoginView so the magic-link fallback
+    // below (.onOpenURL's AuthCallback case) can reach the exact same
+    // ASWebAuthenticationSession instance to cancel it — see
+    // LoginController.completeSignInFromExternalRedirect's comment.
+    @State private var loginController = LoginController()
 
     var body: some View {
         ZStack {
@@ -46,7 +51,7 @@ private struct RootView: View {
             if authSession.isSignedIn {
                 FeedView(authSession: authSession, purchaseManager: purchaseManager)
             } else {
-                LoginView()
+                LoginView(controller: loginController)
             }
         }
         // Handles a tapped https://sparkletapp.com/invite/<id> link once
@@ -62,6 +67,17 @@ private struct RootView: View {
             }
         }
         .onOpenURL { url in
+            // Magic-link sign-in's only possible completion path — see
+            // AuthCallback.swift's comment for why. Checked before the
+            // invite case since both use the same custom scheme.
+            if let code = AuthCallback.code(from: url) {
+                Task {
+                    if let token = try? await loginController.completeSignInFromExternalRedirect(code: code) {
+                        authSession.signIn(token: token)
+                    }
+                }
+                return
+            }
             if let refId = InviteLink.refId(from: url) {
                 pendingInviteRefId = refId
             }
