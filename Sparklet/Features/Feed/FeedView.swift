@@ -21,12 +21,10 @@ struct FeedView: View {
     @StateObject private var leaderboardViewModel: LeaderboardViewModel
     @StateObject private var profileViewModel: ProfileViewModel
     @State private var visibleCardId: String?
-    // Only used for the programmatic "Keep going"-style jumps below —
-    // .scrollPosition(id:) alone is a well-known rough edge for exact
-    // page-snapping when the id is set from code rather than a drag
-    // gesture (see advanceToNextItem's comment); ScrollViewReader.scrollTo
-    // is the more reliable API for that specific case.
-    @State private var scrollProxy: ScrollViewProxy?
+    // Set once by FeedPagingView's makeUIView — the handle for every
+    // programmatic jump below (advanceToNextItem, the goal-reached
+    // re-snap, and the load()/refresh()/filter-apply/reconcile reseeds).
+    @State private var pagingProxy: FeedPagingProxy?
     @State private var isRefreshing = false
     @State private var showingNotifications = false
     @State private var showingFriends = false
@@ -85,61 +83,36 @@ struct FeedView: View {
                 )
                 .padding(.vertical, 8)
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(viewModel.items) { item in
-                                // Cards and every interactive slide kind that
-                                // carries a category (quiz/guess/
-                                // misconception/explain) go edge-to-edge —
-                                // LearnCard.tsx/QuizView.tsx/GuessView.tsx/
-                                // MisconceptionView.tsx/ExplainView.tsx are
-                                // all the same `h-dvh w-full` full-bleed
-                                // shape on the web, none of them a boxed
-                                // panel. Ad/checkin/invite/goalReached (no
-                                // per-category color to show) keep the boxed
-                                // panel treatment they already had.
-                                if isEdgeToEdge(item) {
-                                    itemView(item)
-                                        .containerRelativeFrame(.vertical)
-                                        .id(item.id)
-                                } else {
-                                    itemView(item)
-                                        .padding(.horizontal)
-                                        .padding(.vertical, 8)
-                                        .containerRelativeFrame(.vertical)
-                                        .id(item.id)
-                                }
-                            }
-                        }
-                        .scrollTargetLayout()
+                // UIKit-backed paging (see FeedPagingView.swift's own
+                // comment for the full history) — replaces a SwiftUI
+                // ScrollView + LazyVStack + .scrollTargetBehavior(.paging)
+                // that let each item's computed height drift out of
+                // agreement with the actual per-swipe scroll distance,
+                // which produced two live-confirmed bugs (a sliver of the
+                // next item peeking at the bottom of every page, and a
+                // worse regression where the PREVIOUS item's content bled
+                // into the top of the screen on some pages).
+                FeedPagingView(
+                    items: viewModel.items,
+                    visibleCardId: $visibleCardId,
+                    onProxyReady: { pagingProxy = $0 }
+                ) { item, isVisible in
+                    // Cards and every interactive slide kind that carries a
+                    // category (quiz/guess/misconception/explain) go
+                    // edge-to-edge — LearnCard.tsx/QuizView.tsx/
+                    // GuessView.tsx/MisconceptionView.tsx/ExplainView.tsx
+                    // are all the same `h-dvh w-full` full-bleed shape on
+                    // the web, none of them a boxed panel. Ad/checkin/
+                    // invite/goalReached (no per-category color to show)
+                    // keep the boxed panel treatment they already had.
+                    if isEdgeToEdge(item) {
+                        itemView(item, isVisible: isVisible)
+                    } else {
+                        itemView(item, isVisible: isVisible)
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .scrollIndicators(.hidden) // A vertical scrollbar implies a fixed
-                    // end the user can see coming — wrong signal for a feed
-                    // designed to keep loading indefinitely (see FeedViewModel's
-                    // allowRepeats-based pagination).
-                    .scrollContentBackground(.hidden)
-                    .scrollTargetBehavior(.paging)
-                    .defaultScrollAnchor(.top)
-                    .scrollPosition(id: $visibleCardId)
-                    .onAppear { scrollProxy = proxy }
-                    // A floating .safeAreaInset(edge: .top) header +
-                    // .ignoresSafeArea(edges: .bottom) on this ScrollView
-                    // was tried here to fix a ~18pt sliver of the next
-                    // item peeking in at the bottom (see the reverted
-                    // attempt in git history) — it did fix that, but
-                    // introduced a worse regression, confirmed live: the
-                    // PREVIOUS item's action rail (share/report icons)
-                    // bled into the top of the screen, overlapping the
-                    // status bar, on every page after the first. Reverted
-                    // back to this plain VStack{header; ScrollView}
-                    // structure once that was confirmed — the header
-                    // sharing layout space with the ScrollView is what
-                    // keeps paging's page-height and each item's
-                    // containerRelativeFrame height in agreement. The
-                    // bottom peek is a known, lower-severity tradeoff
-                    // (see "Still open" #6) versus a real UI element
-                    // overlapping the status bar.
                 }
             }
         }
@@ -167,9 +140,10 @@ struct FeedView: View {
         }
         .task {
             await viewModel.loadIfNeeded()
-            // .scrollPosition(id:) only reports changes after the initial
-            // layout — it doesn't seed `visibleCardId` with whatever's
-            // visible on first appearance. Without this, item 1 is never
+            // A freshly created UICollectionView starts at contentOffset
+            // zero (index 0) on its own, so this just needs to seed the
+            // SwiftUI-side state to match — no scroll command needed for
+            // this first-appearance case. Without this, item 1 is never
             // tracked and the read-tracking .task below only starts firing
             // once the user scrolls to item 2.
             if visibleCardId == nil {
@@ -183,8 +157,8 @@ struct FeedView: View {
             // truth — reconcile after that first paint, and re-seed
             // visibleCardId if the reconcile ends up replacing the batch.
             await viewModel.reconcileCategoryFilterWithServer()
-            if visibleCardId != viewModel.items.first?.id {
-                visibleCardId = viewModel.items.first?.id
+            if let firstId = viewModel.items.first?.id, visibleCardId != firstId {
+                pagingProxy?.scrollTo(firstId, false)
             }
             // Same one-time "first session, never onboarded" condition as
             // the web's feed-page redirect, computed server-side (see
@@ -227,7 +201,9 @@ struct FeedView: View {
                     // A filter change replaces the batch outright (same
                     // "reset means reset" semantics as refresh() below) —
                     // reseed so read-tracking picks up on the new item 1.
-                    visibleCardId = viewModel.items.first?.id
+                    if let firstId = viewModel.items.first?.id {
+                        pagingProxy?.scrollTo(firstId, false)
+                    }
                 }
             )
         }
@@ -363,33 +339,30 @@ struct FeedView: View {
             // `items`, and it always lands at/right after whatever card the
             // user is currently on (goalReachedAfter is a snapshot of
             // sessionViews taken at this exact moment) — i.e. exactly the
-            // position that's already on screen. That live insertion shifts
-            // everything after it down by one page, and confirmed live: the
-            // paging ScrollView doesn't reliably keep its offset aligned to
-            // `visibleCardId` through that shift on its own, producing the
-            // same half-settled/cut-off page glitch advanceToNextItem hit
-            // (see its comment) — except here it happens automatically,
-            // with no button tap involved. Re-snapping to the same id right
-            // after the insertion forces the offset to match wherever that
-            // id actually sits post-shift, instead of leaving the
-            // pre-shift pixel offset in place.
+            // position that's already on screen. FeedPagingView's diffable
+            // data source preserves scroll position through an insertion
+            // like this on its own (unlike the old SwiftUI ScrollView,
+            // which needed this explicit re-snap to fix a half-settled/
+            // cut-off page glitch after exactly this kind of live mid-feed
+            // insertion) — this call is now a defensive no-op-if-already-
+            // there safety net, kept in case that guarantee doesn't hold in
+            // some edge case, not a required fix.
             if let visibleCardId {
-                scrollProxy?.scrollTo(visibleCardId, anchor: .top)
+                pagingProxy?.scrollTo(visibleCardId, true)
             }
         }
     }
 
     // "Keep going" / "Maybe later" on the checkin/invite/goalReached slides —
-    // mirrors Feed.tsx's scrollNext (a raw pixel scrollBy); SwiftUI's
-    // .scrollPosition(id:) binding needs the next item's id instead, found
-    // via its position in the already-known `items` array.
+    // mirrors Feed.tsx's scrollNext (a raw pixel scrollBy); finds the next
+    // item's id via its position in the already-known `items` array, then
+    // hands it to FeedPagingView to actually scroll there.
     private func advanceToNextItem() {
         guard let visibleCardId,
               let index = viewModel.items.firstIndex(where: { $0.id == visibleCardId }),
               index + 1 < viewModel.items.count
         else { return }
-        let nextId = viewModel.items[index + 1].id
-        self.visibleCardId = nextId
+        pagingProxy?.scrollTo(viewModel.items[index + 1].id, true)
     }
 
     // Mirrors the `inviteUrl` prop Feed.tsx receives from its server-rendered
@@ -416,14 +389,16 @@ struct FeedView: View {
         // still exists in the new batch) shouldn't carry over — reset to
         // the new first item, same as the initial-load seed above, so
         // tracking picks up on item 1 of the refreshed feed.
-        visibleCardId = viewModel.items.first?.id
+        if let firstId = viewModel.items.first?.id {
+            pagingProxy?.scrollTo(firstId, false)
+        }
     }
 
     @ViewBuilder
-    private func itemView(_ item: FeedItem) -> some View {
+    private func itemView(_ item: FeedItem, isVisible: Bool) -> some View {
         switch item {
         case .card(let card, _):
-            CardView(card: card, isVisible: item.id == visibleCardId)
+            CardView(card: card, isVisible: isVisible)
         case .quiz(let quiz):
             QuizCardView(
                 question: quiz.question,

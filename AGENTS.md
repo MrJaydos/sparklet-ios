@@ -7,6 +7,89 @@ already-shipped Next.js/Prisma/Postgres app; this repo is the iOS client only.
 
 ## Status
 
+**Feed paging rewritten from SwiftUI `ScrollView` to a UIKit-backed
+`UICollectionView`, closing "Still open" #6 for good (2026-08-04)** — after
+the SwiftUI-paging bottom-peek fix from earlier the same day caused a worse
+regression (below), the user asked for the substantial rewrite this
+project's own notes had already flagged as the real fix. Planned via
+`EnterPlanMode` first (see the plan's Context section for the full
+before/after reasoning) — chose a plain `UICollectionView` with a
+`UICollectionViewFlowLayout` sized to the view's own `bounds` plus
+`isPagingEnabled = true`, over `UIPageViewController`, specifically because
+`UIPageViewController`'s relative-only dataSource and known gesture/
+position-desync history would risk trading one flaky paging API for
+another — the opposite of the goal. The core insight: with
+`isPagingEnabled`, paging distance and cell size are the *same value by
+construction* (both come from `bounds.size`), so the class of bug where
+they silently drift apart (the root cause of both the bottom-peek and the
+top-bleed regression) structurally cannot recur.
+- New `FeedPagingView.swift` (`UIViewRepresentable` wrapping the
+  `UICollectionView` + a `UICollectionViewDiffableDataSource<Int,
+  FeedItem>`, since `FeedItem` was already `Identifiable & Hashable`) and
+  `FeedPagingCell.swift` (a thin cell using `UIHostingConfiguration`,
+  iOS 16+, to host each item kind's existing SwiftUI view unchanged — this
+  app's first `UIViewRepresentable` beyond `AdSlideView`'s one-line banner
+  wrapper). `FeedView.itemView(_:)` gained an explicit `isVisible: Bool`
+  param (previously computed inline from `visibleCardId`) so the paging
+  view can pass it through per-cell. Every other SwiftUI view in the
+  feed — `CardView`, `QuizCardView`, `GuessCardView`,
+  `MisconceptionCardView`, `ExplainCardView`, `AdSlideView`,
+  `CheckinSlideView`/`InviteSlideView`/`GoalReachedSlideView` — is
+  unchanged; none of them ever read `visibleCardId`/`ScrollViewProxy`
+  directly, confirmed via research before starting.
+- `FeedView`'s old `@State private var scrollProxy: ScrollViewProxy?` +
+  `ScrollViewReader` became `@State private var pagingProxy:
+  FeedPagingProxy?`, populated once via a callback from `FeedPagingView`'s
+  `makeUIView` — the direct replacement for every old
+  `scrollProxy?.scrollTo(id, anchor: .top)` call site
+  (`advanceToNextItem`, the goal-reached re-snap, and the
+  `load()`/`refresh()`/filter-apply/reconcile reseeds).
+- **Two real bugs found and fixed only by testing this live**, both
+  invisible from reading the code:
+  1. Calling `onProxyReady` synchronously from inside `makeUIView` silently
+     never updated the `@State var pagingProxy` it was supposed to set —
+     `makeUIView` runs as part of SwiftUI's own view-update pass, and
+     mutating `@State` synchronously during a view update is the classic
+     "modifying state during view update, this will cause undefined
+     behavior" trap. Confirmed by making the debug label read
+     `pagingProxy` *live* from the view body rather than via a
+     task-captured snapshot — it stayed `nil` indefinitely with the call
+     inline, and immediately started reading `true` once deferred with
+     `DispatchQueue.main.async`. The old `ScrollViewReader` equivalent
+     (`.onAppear { scrollProxy = proxy }`) never hit this because
+     `.onAppear` fires after the view has actually appeared, not during
+     the render pass.
+  2. Reconfiguring a cell to reflect a new `isVisible` value (needed for
+     `CardView`'s one-shot depth-preference auto-apply, since
+     `UIHostingConfiguration`'s content closure is evaluated once per
+     `contentConfiguration` set, not continuously) via a raw
+     `collectionView.reloadItems(at:)` crashed live with a real
+     `SIGABRT`/`NSAssertionHandler` failure inside
+     `-[UICollectionView reloadItemsAtIndexPaths:]` — twice, once called
+     synchronously and again after deferring one run-loop tick. Root
+     cause: mixing direct `UICollectionView` mutation calls with an
+     attached `UICollectionViewDiffableDataSource` is unsupported: all
+     updates have to go through the data source's own snapshot mechanism.
+     Fixed by using `NSDiffableDataSourceSnapshot.reconfigureItems(_:)`
+     (iOS 15+) instead, applied through the data source normally.
+- **Verified live in the simulator**, the same forced-`visibleCardId`-jump
+  technique used throughout this project (with a temporary on-screen debug
+  label + a debug console-log pass — via `xcrun simctl launch --console`
+  and `log stream`, though plain Swift `print()` turned out not to be
+  reliably captured by either for this debug-dylib build; the on-screen
+  label was what actually worked): a real "Guess" slide reached this way
+  rendered correctly — centered content, category-tinted chip, no crash —
+  with pixel-sampled confirmation of clean background at both the top and
+  bottom edges, no bleed either direction on the exact case (a quiz/guess/
+  misconception/explain slide) that showed both bugs before. All 27
+  `SparkletTests` pass throughout (unaffected — pure data-layer,
+  `FeedItemInterleaveTests` never touches the view layer).
+- **Not yet verified: real swipe-gesture feel, momentum, and snap
+  precision** — this sandbox has no Accessibility permission to script
+  touch gestures, and that's precisely the dimension this rewrite changes.
+  Installed to the user's connected iPhone for them to swipe through
+  directly; genuinely confirmed only once they do.
+
 **Reverted the bottom-peek fix — it caused a worse regression, caught live
 by the user (2026-08-04)**: "When you scroll to a quiz card you can still
 see the bottom buttons from the last card up the top of the screen behind
@@ -1200,23 +1283,13 @@ UI that matches them rather than fights them:
    consent dialog ("'Sparklet' Wants to Use 'sparkletapp.com' to Sign In")
    appeared correctly and the browser sheet loaded the real login page; no
    scheme-mismatch failure.
-6. **No longer just a rare artifact — confirmed general and reproducible
-   2026-08-01, still unfixed.** Originally observed once on 2026-07-29
-   after rapid robotic swipe-reversals and assumed to be a testing-only
-   edge case (a plain app restart cleared it). Re-surfaced live by the
-   user via the checkin/invite/goalReached slides' "Keep going anyway"
-   buttons, and confirmed via a debug harness (see Status above) to
-   reproduce for ANY programmatic `.scrollPosition(id:)` write — even a
-   plain quiz→card jump with no recap slide involved — not something
-   specific to rapid manual swiping. 7 mitigations tried (animation
-   variants, scroll anchors, `ScrollViewReader.scrollTo`, sequential
-   pre-settling, a corrective re-snap), none fully resolve it; it's a
-   general SwiftUI limitation with `.scrollTargetBehavior(.paging)` under
-   programmatic navigation. A full fix likely means replacing the paging
-   `ScrollView` with a UIKit-backed page view — a substantial rewrite, out
-   of scope so far. The current mitigation (plain non-animated write +
-   `.defaultScrollAnchor(.top)`) still navigates to the right item, just
-   occasionally mis-snapped.
+6. ~~No longer just a rare artifact — confirmed general and reproducible
+   2026-08-01, still unfixed.~~ **Fixed 2026-08-04 by the UIKit-backed
+   paging rewrite — see Status above.** The whole class of bug (SwiftUI's
+   page-height math drifting out of agreement with its actual per-swipe
+   scroll distance) can't recur once "one page" and "one swipe" are the
+   same native value by construction, which is exactly what the rewrite
+   achieves.
 7. ~~Invite Universal Links: AASA file not published~~ **AASA file
    published and live in production 2026-08-01** — see Status above. Only
    remaining step is verifying with a real device that tapping a
